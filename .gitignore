@@ -1,0 +1,19 @@
+# What I want:
+	# .dll, .lib, .cpp, .c, .h, .bat, media files
+# What I don't want:
+	# .exe, .ilk, .pdb, .suo, .sdf, .sdl, .obj, Visual Studio folders, Sublime specific stuff
+
+# Visual Studio nonsense
+*.exe
+*.ilk
+*.pdb
+*.suo
+*.sdf
+*.sln
+*.obj
+\.vs
+\Debug
+
+# My nonsense
+*.sublime-project
+*.sublime-workspace
