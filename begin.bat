@@ -6,8 +6,8 @@ IF NOT [%1] == [] (
 
 	set name=%1
 
-	call "C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\vcvarsall.bat" x64
-	echo vc13 x64
+	call "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x64
+	echo vc15 x64
 
 	IF EXIST bin\!name!.exe (
 		start devenv bin\!name!.exe
