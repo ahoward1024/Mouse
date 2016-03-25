@@ -28,6 +28,12 @@ global bool Global_Paused = false;
 global SDL_Window *window;
 global SDL_Renderer *renderer;
 
+
+
+// TODO: List of view rectangles to pass around
+global SDL_Rect currentView, currentViewBack, compositeView, compositeViewBack, timelineView;
+
+// Video only clips
 struct VideoClip
 {
 	AVFormatContext    *avFormatCtx;
@@ -49,19 +55,45 @@ struct VideoClip
 	bool								loop;
 	const char         *filename;
 	float               framerate;
+	AVRational          aspectRatio;
+	float               aspectRatioF;
 	int                 currentFrame;
 	int                 frameCount;
 };
 
+struct AudioClip
+{
+	// TODO: Create audio only clips
+};
+
+struct AVClip
+{
+	// TODO: Create audio and video clips
+};
+
+void freeVideoClip(VideoClip *clip)
+{
+	av_frame_free(&clip->avFrame);
+	avcodec_close(clip->videoCodecCtx);
+	avformat_close_input(&clip->avFormatCtx);
+	free(clip->avFormatCtx);
+	free(clip->yPlane);
+	free(clip->uPlane);
+	free(clip->vPlane);
+	SDL_free(clip->texture);
+}
+
 void initVideoClip(VideoClip *clip, const char *file, bool loop)
 {
-	clip->filename = file;
 	clip->avFormatCtx = NULL;
 	if(avformat_open_input(&clip->avFormatCtx, file, NULL, NULL) != 0)
 	{
 		printf("Could not open file: %s.\n", file);
 		exit(-1);
 	}
+
+	clip->filename = av_strdup(clip->avFormatCtx->filename);
+	printf("FILENAME: %s\n", clip->filename);
 
 	avformat_find_stream_info(clip->avFormatCtx, NULL);
 
@@ -77,12 +109,16 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 			break;
 		}
 	}
+
+	assert(clip->videoStreamIndex != -1);
 	AVCodecContext *videoCodecCtxOrig = 
 		clip->avFormatCtx->streams[clip->videoStreamIndex]->codec;
 	clip->videoCodec = avcodec_find_decoder(videoCodecCtxOrig->codec_id);
 	
 	clip->videoCodecCtx	= avcodec_alloc_context3(clip->videoCodec);
 	avcodec_copy_context(clip->videoCodecCtx, videoCodecCtxOrig);
+
+	avcodec_close(videoCodecCtxOrig);
 
 	avcodec_open2(clip->videoCodecCtx, clip->videoCodec, NULL);
 
@@ -128,8 +164,18 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 	                                  clip->videoCodecCtx->width,
 	                                  clip->videoCodecCtx->height);
 
-	AVRational rat = clip->videoCodecCtx->framerate;
-	clip->framerate = rat.num / rat.den;
+
+	AVRational fr = clip->videoCodecCtx->framerate;
+	clip->framerate = (float)fr.num / (float)fr.den;
+	printf("Framerate: %.2ffps\n", clip->framerate);
+
+	av_reduce(&clip->aspectRatio.num, &clip->aspectRatio.den,
+	          clip->videoCodecCtx->width,
+	          clip->videoCodecCtx->height,
+	          16);
+	clip->aspectRatioF = (float)clip->aspectRatio.num / (float)clip->aspectRatio.den;
+	printf("Aspect Ratio: (%f), [%d:%d]\n", clip->aspectRatioF, 
+	       clip->aspectRatio.num, clip->aspectRatio.den);
 
 	clip->loop = loop;
 
@@ -171,16 +217,21 @@ int playVideoClip(void *data)
 				clip->currentFrame = clip->avFrame->coded_picture_number;
 			}
 		}
+		av_free_packet(&clip->packet);
 	}
 	else
 	{
 		av_free_packet(&clip->packet);
+		av_frame_free(&clip->avFrame);
 		if(clip->loop)
 		{
 			// TODO: This is bad. Real bad. Find a better way to do this.
+			freeVideoClip(clip);
+
 			initVideoClip(clip, clip->filename, true);
 		}
 	}
+
 	return 0;
 }
 
@@ -191,6 +242,145 @@ void setClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)
 	if(x < 0 || y < 0 || x > width || y > height) return;
 	clip->destRect.x = x;
 	clip->destRect.y = y;
+}
+
+// XXX TODO: Fix resizing
+void resizeAllWindowElements(SDL_Window *window, 
+                             SDL_Rect *currentViewBack, SDL_Rect *compositeViewBack,
+                             SDL_Rect *currentView, SDL_Rect *compositeView, 
+                             SDL_Rect *timelineView,
+                             VideoClip *clip)
+{
+	// TODO: Calculate bufferspace
+	const int bufferSpace = 10;
+
+	int windowWidth, windowHeight, hwidth, hheight, backViewW, backViewH, 
+	currentViewW, currentViewH, compositeViewW, compositeViewH;
+
+	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+	hwidth = windowWidth / 2;
+	hheight = windowHeight / 2;
+
+	// Find the nearest 16x9 (STC) resolution to fit the current and composite views into
+	for(int w = 0, h = 0; 
+	    w < (hwidth - (bufferSpace * 2)) && h < (hheight - (bufferSpace * 2));
+	    w += 16, h += 9)
+	{
+		backViewW = w;
+		backViewH = h;
+	}
+
+	printf("backview: %d,%d\n", backViewW, backViewH);
+
+	// Fit the current view background into a 16x9 (STC) rectangle on the left side
+	currentViewBack->w = backViewW;
+	currentViewBack->h = backViewH;	
+	currentViewBack->x = bufferSpace + (((hwidth - (bufferSpace * 2)) - currentViewBack->w) / 2);
+	currentViewBack->y = bufferSpace + (((hheight - (bufferSpace * 2)) - currentViewBack->h) / 2);
+
+	// Fit the current view background into a 16x9 (STC) rectangle on the right side
+	compositeViewBack->w = backViewW;
+	compositeViewBack->h = backViewH;
+	compositeViewBack->x = (windowWidth / 2) + bufferSpace + (((hwidth - (bufferSpace * 2)) - compositeViewBack->w) / 2);
+	compositeViewBack->y = bufferSpace + (((hheight - (bufferSpace * 2)) - compositeViewBack->h) / 2);
+
+	// Find the nearest rectangle to fit the clip's aspect ratio into the view backgrounds
+	for(int w = 0, h = 0; 
+	    w <= currentViewBack->w && h <= currentViewBack->h; 
+	    w += clip->aspectRatio.num, h += clip->aspectRatio.den)
+	{
+		currentViewW = w;
+		currentViewH = h;
+	}
+
+	printf("currentview: %d,%d\n", currentViewW, currentViewH);
+
+	// Find the nearest rectangle to fit the clip's aspect ratio into the view backgrounds
+	for(int w = 0, h = 0; 
+	    w <= compositeViewBack->w && h <= compositeViewBack->h; 
+	    w += clip->aspectRatio.num, h += clip->aspectRatio.den)
+	{
+		compositeViewW = w;
+		compositeViewH = h;
+	}
+
+	printf("compositeview: %d,%d\n", compositeViewW, compositeViewH);
+
+
+	// Put the current clip view on the right hand side and center it
+	// in the current view background
+	currentView->w = currentViewW;
+	currentView->h = currentViewH;
+	currentView->x = currentViewBack->x + ((currentViewBack->w - currentView->w) / 2);
+	currentView->y = currentViewBack->y + ((currentViewBack->h - currentView->h) / 2);
+
+	// Put the composite clip view on the left hand side and center it
+	// in the composite view background
+	compositeView->w = compositeViewW;
+	compositeView->h = compositeViewH;
+	compositeView->x = compositeViewBack->x + ((compositeViewBack->w - compositeView->w) / 2);
+	compositeView->y = compositeViewBack->y + ((compositeViewBack->h - compositeView->h) / 2);
+
+	// Put the timeline clips view
+	timelineView->x = bufferSpace;
+	timelineView->y = (windowHeight / 2) + bufferSpace;
+	timelineView->w = windowWidth - (bufferSpace * 2);
+	timelineView->h = (windowHeight / 2) - (bufferSpace * 2);
+}
+
+void testBufferRects(SDL_Renderer *renderer, int windowWidth, int windowHeight)
+{
+	// DEBUG <
+	SDL_SetRenderDrawColor(renderer, tcGreen.r, tcGreen.g, tcGreen.b, tcGreen.a);
+	SDL_Rect testrect;
+	int hrectb = 10;
+	
+	testrect.x = 0;
+	testrect.y = hrectb;
+	testrect.w = hrectb;
+	testrect.h = (windowHeight / 2) - (hrectb * 2);
+	SDL_RenderFillRect(renderer, &testrect);
+
+	testrect.x = hrectb;
+	testrect.y = 0;
+	testrect.w = (windowWidth / 2) - (hrectb * 2);
+	testrect.h = hrectb;
+	SDL_RenderFillRect(renderer, &testrect);
+
+	testrect.x = hrectb;
+	testrect.y = (windowHeight / 2) - hrectb;
+	testrect.w = (windowWidth / 2) - (hrectb * 2);
+	testrect.h = hrectb;
+	SDL_RenderFillRect(renderer, &testrect);
+
+	testrect.x = (windowWidth / 2) - hrectb;
+	testrect.y = hrectb;
+	testrect.w = hrectb;
+	testrect.h = (windowHeight / 2) - (hrectb * 2);
+	SDL_RenderFillRect(renderer, &testrect);
+	testrect.x = (windowWidth / 2) + 1;
+	SDL_RenderFillRect(renderer, &testrect);
+
+	testrect.x = (windowWidth / 2) + 1 + hrectb;
+	testrect.y = 0;
+	testrect.w = (windowWidth / 2) - 1 - (hrectb * 2);
+	testrect.h = hrectb;
+	SDL_RenderFillRect(renderer, &testrect);
+
+	testrect.x = (windowWidth / 2) + 1 + hrectb;
+	testrect.y = (windowHeight / 2) - hrectb;
+	SDL_RenderFillRect(renderer, &testrect);
+
+	testrect.x = (windowWidth) - hrectb;
+	testrect.y = hrectb;
+	testrect.w = hrectb;
+	testrect.h = (windowHeight / 2) - (hrectb * 2);
+	SDL_RenderFillRect(renderer, &testrect);
+
+	SDL_SetRenderDrawColor(renderer, tcRed.r, tcRed.g, tcRed.b, tcRed.a);
+	SDL_RenderDrawLine(renderer, windowWidth / 2, 0, windowWidth / 2, windowHeight / 2);
+	SDL_RenderDrawLine(renderer, 0, windowHeight / 2, windowWidth, windowHeight / 2);
+	// DEBUG >
 }
 
 internal void HandleEvents(SDL_Event event, VideoClip *clip)
@@ -214,19 +404,25 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				} break;
 			}
 		}
+		if(event.type == SDL_WINDOWEVENT)
+		{
+			switch(event.window.event)
+			{
+				case SDL_WINDOWEVENT_SIZE_CHANGED:
+				{
+					resizeAllWindowElements(window, 
+					                        &currentViewBack, &compositeViewBack,
+					                        &currentView, &compositeView,
+					                        &timelineView,
+					                        clip);
+				} break;
+				case SDL_WINDOWEVENT_FOCUS_LOST:
+				{
+					Global_Paused = true;
+				} break;
+			}
+		}
 	}
-}
-
-int getGCD(int w, int h)
-{
-	int num = h;
-	if(w > h) num = w;
-
-	for(int  i = num - 1; i > 0; --i)
-	{
-		if((w % i == 0) && (h % i == 0)) return i;
-	}
-	return 0;
 }
 
 int main(int argc, char **argv)
@@ -249,109 +445,65 @@ int main(int argc, char **argv)
 
 	SDL_Event event = {};
 
-	tColor bgc = tColorFromHex(COLOR_BACKGROUNDCOLOR);
+	const char *fname;
+	if(argv[1]) fname = argv[1];
+	else fname = "../res/Anime404.mp4";
 
-	const int bufferSpace = 10;
-
-	int hwidth, hheight, sbnw, sbnh;
-
-	SDL_Rect currentClipView;
-	tColor currentClipViewColor = tColorFromHex(COLOR_RED);
-
-	SDL_Rect compositeView;
-	tColor compositeViewColor = tColorFromHex(COLOR_BLUE);
-
-	SDL_Rect timelineView;
-	tColor timelineViewColor = tColorFromHex(COLOR_TIMELINECOLOR);
-
+	// TODO: List of clips to pass around
 	VideoClip clip0;
-	initVideoClip(&clip0, "../res/Anime404.mp4", false);
+	initVideoClip(&clip0, fname, true);
 
 	int frameFinished;
 	bool signalFinished = true;
 
 	printf("Framecount: %d\n", clip0.frameCount);
 
+	resizeAllWindowElements(window, 
+	                        &currentViewBack, &compositeViewBack,
+	                        &currentView, &compositeView,
+	                        &timelineView,
+	                        &clip0);
+
+	Global_Paused = true;
+
 	while(Global_Running)
 	{
-		SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-		hwidth = windowWidth / 2;
-		hheight = windowHeight / 2;
-
-		// Find the nearest 16 x 9 resolution to fit the windows into
-		for(int w = 0, h = 0; 
-		    w < (hwidth - (bufferSpace * 2)) && h < hheight - bufferSpace; 
-		    w += 16, h += 9)
-		{
-			sbnw = w;
-			sbnh = h;
-		}
-
-		// Put the current clip view on the right hand side
-		currentClipView.x = bufferSpace;
-		currentClipView.y = bufferSpace;
-		currentClipView.w = sbnw;
-		currentClipView.h = sbnh;
-
-		// Put the composite clip view on the left hand side
-		compositeView.w = sbnw + bufferSpace;
-		compositeView.h = sbnh;
-		compositeView.x = windowWidth - bufferSpace - compositeView.w;
-		compositeView.y = bufferSpace;
-
-		// Put the timeline clips view
-		timelineView.x = bufferSpace;
-		timelineView.y = (windowHeight / 2);
-		timelineView.w = windowWidth - (bufferSpace * 2);
-		timelineView.h = (windowHeight / 2) - bufferSpace;
-
 		HandleEvents(event, &clip0);
+		SDL_GetWindowSize(window, &windowWidth, &windowHeight);
 		if(!Global_Paused)
 		{
 			playVideoClip(&clip0);
 		}
 
-		printf("current frame: %d\n", clip0.currentFrame);
+		//printf("current frame: %d\n", clip0.currentFrame);
 
 		SDL_SetRenderDrawColor(renderer, bgc.r, bgc.g, bgc.b, bgc.a);
 		SDL_RenderClear(renderer);
 
-		SDL_SetRenderDrawColor(renderer, 
-		                       currentClipViewColor.r, 
-		                       currentClipViewColor.g, 
-		                       currentClipViewColor.b,
-		                       currentClipViewColor.a);
-		SDL_RenderFillRect(renderer, &currentClipView);
-		SDL_SetRenderDrawColor(renderer, 
-		                       compositeViewColor.r, 
-		                       compositeViewColor.g, 
-		                       compositeViewColor.b,
-		                       compositeViewColor.a);
+		testBufferRects(renderer, windowWidth, windowHeight);
+
+		SDL_SetRenderDrawColor(renderer, tcBlack.r, tcBlack.g, tcBlack.b, tcBlack.a);
+		SDL_RenderFillRect(renderer, &currentViewBack);
+		SDL_RenderFillRect(renderer, &compositeViewBack);
+
+		SDL_SetRenderDrawColor(renderer, tcRed.r, tcRed.g, tcRed.b, tcRed.a);
+		SDL_RenderFillRect(renderer, &currentView);
+		SDL_SetRenderDrawColor(renderer, tcBlue.r, tcBlue.g, tcBlue.b, tcBlue.a);
 		SDL_RenderFillRect(renderer, &compositeView);
 
 		// TODO: Render copy list of videos....
-		SDL_RenderCopy(renderer, clip0.texture, &clip0.srcRect, &currentClipView);
+		SDL_RenderCopy(renderer, clip0.texture, &clip0.srcRect, &currentView);
 		SDL_RenderCopy(renderer, clip0.texture, &clip0.srcRect, &compositeView);
 
-
-		SDL_SetRenderDrawColor(renderer, 
-		                       timelineViewColor.r, 
-		                       timelineViewColor.g, 
-		                       timelineViewColor.b, 
-		                       timelineViewColor.a);
+		SDL_SetRenderDrawColor(renderer, tlcolor.r, tlcolor.g, tlcolor.b, tlcolor.a);
 		SDL_RenderFillRect(renderer, &timelineView);
 		SDL_RenderPresent(renderer);
 
 	}
 
-
 	SDL_Quit();
 
-	av_frame_free(&clip0.avFrame);
-
-	avcodec_close(clip0.videoCodecCtx);
-
-	avformat_close_input(&clip0.avFormatCtx);
+	freeVideoClip(&clip0);
 	
 	printf("Goodbye.\n");
 

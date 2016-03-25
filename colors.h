@@ -1,6 +1,29 @@
 #ifndef COLORS_H
 #define COLORS_H
 
+// COLOR STRUCTURES
+struct fColor
+{
+  float32 r;
+  float32 g;
+  float32 b;
+  float32 a;
+};
+
+struct tColor
+{
+  uint8 r;
+  uint8 g;
+  uint8 b;
+  uint8 a;
+};
+
+// FUNCTION DECLARATIONS
+internal uint32 roundFlot32ToUin32(float32 number);
+internal uint32 hColorFromFloat(float32 r, float32 g, float32 b, float32 a);
+internal fColor fColorFromHex(uint32 color);
+internal tColor tColorFromHex(uint32 color);
+
 // STANDARD COLORS                    0xAABBGGRR (SDL GFX SPECIFIED)
 global const uint32 COLOR_WHITE     = 0xFFFFFFFF;
 global const uint32 COLOR_BLACK     = 0xFF000000;
@@ -13,6 +36,32 @@ global const uint32 COLOR_BLUE      = 0xFFFF0000;
 global const uint32 COLOR_CYAN      = 0xFFFFFF00;
 global const uint32 COLOR_MAGENTA   = 0xFFFF00FF;
 global const uint32 COLOR_YELLOW    = 0xFF00FFFF;
+
+// STANDARD TCOLORS
+global tColor tcWhite     = tColorFromHex(COLOR_WHITE);
+global tColor tcBlack     = tColorFromHex(COLOR_BLACK);
+global tColor tcGrey      = tColorFromHex(COLOR_GREY);
+global tColor tcLightGrey = tColorFromHex(COLOR_LIGHTGREY);
+global tColor tcDarkGrey  = tColorFromHex(COLOR_DARKGREY);
+global tColor tcRed       = tColorFromHex(COLOR_RED);
+global tColor tcBlue      = tColorFromHex(COLOR_BLUE);
+global tColor tcGreen     = tColorFromHex(COLOR_GREEN);
+global tColor tcCyan      = tColorFromHex(COLOR_CYAN);
+global tColor tcMagenta   = tColorFromHex(COLOR_MAGENTA);
+global tColor tcYellow    = tColorFromHex(COLOR_YELLOW);
+
+// STANDARD FCOLORS
+global fColor fcWhite     = fColorFromHex(COLOR_WHITE);
+global fColor fcBlack     = fColorFromHex(COLOR_BLACK);
+global fColor fcGrey      = fColorFromHex(COLOR_GREY);
+global fColor fcLightGrey = fColorFromHex(COLOR_LIGHTGREY);
+global fColor fcDarkGrey  = fColorFromHex(COLOR_DARKGREY);
+global fColor fcRed       = fColorFromHex(COLOR_RED);
+global fColor fcBlue      = fColorFromHex(COLOR_BLUE);
+global fColor fcGreen     = fColorFromHex(COLOR_GREEN);
+global fColor fcCyan      = fColorFromHex(COLOR_CYAN);
+global fColor fcMagenta   = fColorFromHex(COLOR_MAGENTA);
+global fColor fcYellow    = fColorFromHex(COLOR_YELLOW);
 
 // CUSTOM COLORS
 global const uint32 COLOR_VIDEOBLUE       = 0xFFEEA410;
@@ -31,22 +80,12 @@ global const uint32 COLOR_MIDLINE         = 0xFFD8C5B8;
 global const uint32 COLOR_ENDLINE         = 0xFFE5E1DF;
 global const uint32 COLOR_PLAYHEAD        = 0xFF1177F4;
 
-struct fColor
-{
-  float32 r;
-  float32 g;
-  float32 b;
-  float32 a;
-};
+// CUSTOM TCOLORS
+global tColor bgc = tColorFromHex(COLOR_BACKGROUNDCOLOR);
+global tColor tlcolor = tColorFromHex(COLOR_TIMELINECOLOR);
 
-struct tColor
-{
-  uint8 r;
-  uint8 g;
-  uint8 b;
-  uint8 a;
-};
 
+// FUNCTION DEFINITIONS
 internal uint32 roundFloat32ToUint32(float32 number)
 {
   uint32 result = (uint32)(number + 0.5f);
