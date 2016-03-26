@@ -81,8 +81,8 @@ global const uint32 COLOR_ENDLINE         = 0xFFE5E1DF;
 global const uint32 COLOR_PLAYHEAD        = 0xFF1177F4;
 
 // CUSTOM TCOLORS
-global tColor bgc = tColorFromHex(COLOR_BACKGROUNDCOLOR);
-global tColor tlcolor = tColorFromHex(COLOR_TIMELINECOLOR);
+global tColor tcBgc = tColorFromHex(COLOR_BACKGROUNDCOLOR);
+global tColor tcView       = tColorFromHex(COLOR_TIMELINECOLOR);
 
 
 // FUNCTION DEFINITIONS
