@@ -332,27 +332,25 @@ void resizeAllWindowElements(SDL_Window *window,
 	compositeView->x = compositeViewBack->x + ((compositeViewBack->w - compositeView->w) / 2);
 	compositeView->y = compositeViewBack->y + ((compositeViewBack->h - compositeView->h) / 2);
 
-#if 0
 	// Put the file browser view in the bottom right portion of the screen
 	browserView->x = bufferSpace;
 	browserView->y = (windowHeight / 2) + bufferSpace;
-	browserView->w = (windowHeight / 3);
+	browserView->w = (windowWidth / 6) - (bufferSpace * 2);
 	browserView->h = (windowHeight / 2) - (bufferSpace * 2);
-
-	// Put the track effects view in the bottom portion of the screen to the
-	// left of the timeline view
-	effectsView->x = (((windowWidth / 6) - bufferSpace) * 5);
-	effectsView->y = (windowHeight / 2) + bufferSpace;
-	effectsView->w = browserView->w;
-	effectsView->h = browserView->h;
 
 	// Put the timeline clips view in the center bottom portion of the screen
 	// between the file browser view and the track effects view
-	timelineView->x = browserView->x + browserView->w + bufferSpace;
+	timelineView->x = (windowWidth / 6) + bufferSpace;
 	timelineView->y = (windowHeight / 2) + bufferSpace;
-	timelineView->w = effectsView->x - timelineView->x - bufferSpace;
+	timelineView->w = ((windowWidth / 6) * 4) - (bufferSpace * 2);
 	timelineView->h = (windowHeight / 2) - (bufferSpace * 2);
-#endif
+
+	// Put the track effects view in the bottom portion of the screen to the
+	// left of the timeline view
+	effectsView->x = ((windowWidth / 6) * 5) + bufferSpace;
+	effectsView->y = (windowHeight / 2) + bufferSpace;
+	effectsView->w = (windowWidth / 6) - (bufferSpace * 2);
+	effectsView->h = (windowHeight / 2) - (bufferSpace * 2);	
 }
 
 void testBufferRects(SDL_Renderer *renderer, int windowWidth, int windowHeight)
@@ -454,6 +452,18 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 	}
 }
 
+void setRenderColor(SDL_Renderer *renderer, tColor color, uint8 alpha)
+{
+	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+	SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, alpha);
+	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
+}
+
+void setRenderColor(SDL_Renderer *renderer, tColor color)
+{
+	SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+}
+
 int main(int argc, char **argv)
 {
 	printf("Hello world.\n");
@@ -508,31 +518,31 @@ int main(int argc, char **argv)
 
 		//printf("current frame: %d\n", clip0.currentFrame);
 
-		SDL_SetRenderDrawColor(renderer, tcBgc.r, tcBgc.g, tcBgc.b, tcBgc.a);
+		SDL_SetRenderDrawColor(renderer, 
+		                       tcBackground.r, tcBackground.g, tcBackground.b, tcBackground.a);
 		SDL_RenderClear(renderer);
 
 		//testBufferRects(renderer, windowWidth, windowHeight);
 
-		SDL_SetRenderDrawColor(renderer, tcBlack.r, tcBlack.g, tcBlack.b, tcBlack.a);
+		setRenderColor(renderer, tcBlack);
 		SDL_RenderFillRect(renderer, &currentViewBack);
 		SDL_RenderFillRect(renderer, &compositeViewBack);
 
-		SDL_SetRenderDrawColor(renderer, tcRed.r, tcRed.g, tcRed.b, tcRed.a);
+		setRenderColor(renderer, tcRed);
 		SDL_RenderFillRect(renderer, &currentView);
-		SDL_SetRenderDrawColor(renderer, tcBlue.r, tcBlue.g, tcBlue.b, tcBlue.a);
+		setRenderColor(renderer, tcBlue);
 		SDL_RenderFillRect(renderer, &compositeView);
 
 		// TODO: Render copy list of videos....
 		SDL_RenderCopy(renderer, clip0.texture, &clip0.srcRect, &currentView);
 		SDL_RenderCopy(renderer, clip0.texture, &clip0.srcRect, &compositeView);
 
-		SDL_SetRenderDrawColor(renderer, tcView.r, tcView.g, tcView.b, tcView.a);
-		//SDL_RenderFillRect(renderer, &browserView);
-		//SDL_RenderFillRect(renderer, &timelineView);
-		//SDL_RenderFillRect(renderer, &effectsView);
-		
-		SDL_RenderPresent(renderer);
+		setRenderColor(renderer, tcView);
+		SDL_RenderFillRect(renderer, &browserView);
+		SDL_RenderFillRect(renderer, &timelineView);
+		SDL_RenderFillRect(renderer, &effectsView);
 
+		SDL_RenderPresent(renderer);
 	}
 
 	SDL_Quit();

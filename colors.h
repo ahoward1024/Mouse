@@ -38,30 +38,30 @@ global const uint32 COLOR_MAGENTA   = 0xFFFF00FF;
 global const uint32 COLOR_YELLOW    = 0xFF00FFFF;
 
 // STANDARD TCOLORS
-global tColor tcWhite     = tColorFromHex(COLOR_WHITE);
-global tColor tcBlack     = tColorFromHex(COLOR_BLACK);
-global tColor tcGrey      = tColorFromHex(COLOR_GREY);
-global tColor tcLightGrey = tColorFromHex(COLOR_LIGHTGREY);
-global tColor tcDarkGrey  = tColorFromHex(COLOR_DARKGREY);
-global tColor tcRed       = tColorFromHex(COLOR_RED);
-global tColor tcBlue      = tColorFromHex(COLOR_BLUE);
-global tColor tcGreen     = tColorFromHex(COLOR_GREEN);
-global tColor tcCyan      = tColorFromHex(COLOR_CYAN);
-global tColor tcMagenta   = tColorFromHex(COLOR_MAGENTA);
-global tColor tcYellow    = tColorFromHex(COLOR_YELLOW);
+global const tColor tcWhite     = tColorFromHex(COLOR_WHITE);
+global const tColor tcBlack     = tColorFromHex(COLOR_BLACK);
+global const tColor tcGrey      = tColorFromHex(COLOR_GREY);
+global const tColor tcLightGrey = tColorFromHex(COLOR_LIGHTGREY);
+global const tColor tcDarkGrey  = tColorFromHex(COLOR_DARKGREY);
+global const tColor tcRed       = tColorFromHex(COLOR_RED);
+global const tColor tcBlue      = tColorFromHex(COLOR_BLUE);
+global const tColor tcGreen     = tColorFromHex(COLOR_GREEN);
+global const tColor tcCyan      = tColorFromHex(COLOR_CYAN);
+global const tColor tcMagenta   = tColorFromHex(COLOR_MAGENTA);
+global const tColor tcYellow    = tColorFromHex(COLOR_YELLOW);
 
 // STANDARD FCOLORS
-global fColor fcWhite     = fColorFromHex(COLOR_WHITE);
-global fColor fcBlack     = fColorFromHex(COLOR_BLACK);
-global fColor fcGrey      = fColorFromHex(COLOR_GREY);
-global fColor fcLightGrey = fColorFromHex(COLOR_LIGHTGREY);
-global fColor fcDarkGrey  = fColorFromHex(COLOR_DARKGREY);
-global fColor fcRed       = fColorFromHex(COLOR_RED);
-global fColor fcBlue      = fColorFromHex(COLOR_BLUE);
-global fColor fcGreen     = fColorFromHex(COLOR_GREEN);
-global fColor fcCyan      = fColorFromHex(COLOR_CYAN);
-global fColor fcMagenta   = fColorFromHex(COLOR_MAGENTA);
-global fColor fcYellow    = fColorFromHex(COLOR_YELLOW);
+global const fColor fcWhite     = fColorFromHex(COLOR_WHITE);
+global const fColor fcBlack     = fColorFromHex(COLOR_BLACK);
+global const fColor fcGrey      = fColorFromHex(COLOR_GREY);
+global const fColor fcLightGrey = fColorFromHex(COLOR_LIGHTGREY);
+global const fColor fcDarkGrey  = fColorFromHex(COLOR_DARKGREY);
+global const fColor fcRed       = fColorFromHex(COLOR_RED);
+global const fColor fcBlue      = fColorFromHex(COLOR_BLUE);
+global const fColor fcGreen     = fColorFromHex(COLOR_GREEN);
+global const fColor fcCyan      = fColorFromHex(COLOR_CYAN);
+global const fColor fcMagenta   = fColorFromHex(COLOR_MAGENTA);
+global const fColor fcYellow    = fColorFromHex(COLOR_YELLOW);
 
 // CUSTOM COLORS
 global const uint32 COLOR_VIDEOBLUE       = 0xFFEEA410;
@@ -70,9 +70,9 @@ global const uint32 COLOR_SOLOBLUE        = 0xFFE5952D;
 global const uint32 COLOR_MUTEORANGE      = 0xFF0060F2;
 global const uint32 COLOR_SLIDEORANGE     = 0xFF4FC1F2;
 global const uint32 COLOR_DROPDOWN        = 0xFF93897F;
-global const uint32 COLOR_SCROLLINGBARS   = 0xFF564F46;
+global const uint32 COLOR_SCROLLBARS      = 0xFF564F46;
 global const uint32 COLOR_SELECTEDTRACK   = 0xFFE2DDD9;
-global const uint32 COLOR_TIMELINECOLOR   = 0xFFB2ADA5;
+global const uint32 COLOR_VIEWCOLOR       = 0xFFB2ADA5;
 global const uint32 COLOR_BACKGROUNDCOLOR = 0xFF3D3D3D;
 global const uint32 COLOR_BORDER          = 0xFF93897F;
 global const uint32 COLOR_LINE            = 0xFFC5BEB7;
@@ -81,8 +81,21 @@ global const uint32 COLOR_ENDLINE         = 0xFFE5E1DF;
 global const uint32 COLOR_PLAYHEAD        = 0xFF1177F4;
 
 // CUSTOM TCOLORS
-global tColor tcBgc = tColorFromHex(COLOR_BACKGROUNDCOLOR);
-global tColor tcView       = tColorFromHex(COLOR_TIMELINECOLOR);
+global const tColor tcVideoBlue       = tColorFromHex(COLOR_VIDEOBLUE);
+global const tColor tcAudioGreen      = tColorFromHex(COLOR_AUDIOGREEN);
+global const tColor tcSoloBlue        = tColorFromHex(COLOR_SOLOBLUE);
+global const tColor tcMuteOrane       = tColorFromHex(COLOR_MUTEORANGE);
+global const tColor tcSlideOrange     = tColorFromHex(COLOR_SLIDEORANGE);
+global const tColor tcDropDown        = tColorFromHex(COLOR_DROPDOWN);
+global const tColor tcScrollBars      = tColorFromHex(COLOR_SCROLLBARS);
+global const tColor tcSelectedTrack   = tColorFromHex(COLOR_SELECTEDTRACK);
+global const tColor tcView            = tColorFromHex(COLOR_VIEWCOLOR);
+global const tColor tcBackground      = tColorFromHex(COLOR_BACKGROUNDCOLOR);
+global const tColor tcBorder          = tColorFromHex(COLOR_BORDER);
+global const tColor tcLine            = tColorFromHex(COLOR_LINE);
+global const tColor tcMidline         = tColorFromHex(COLOR_MIDLINE);
+global const tColor tcEndline         = tColorFromHex(COLOR_ENDLINE);
+global const tColor tcPlayhead        = tColorFromHex(COLOR_PLAYHEAD);
 
 
 // FUNCTION DEFINITIONS
