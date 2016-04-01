@@ -1,6 +1,6 @@
 @echo off
 
-set cmp=/Zi /FC
+set cmp=/Zi
 set inc=-I..\inc
 set lnk=/SUBSYSTEM:CONSOLE ..\lib\*.lib opengl32.lib
 

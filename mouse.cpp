@@ -8,6 +8,9 @@
 #include <sys/stat.h>
 #include <assert.h>
 
+// TODO: Get rid of all of this DLL nonsense and statically compile all dependencies
+// so they are built directly into the .exe with /MT.
+
 extern "C" 
 {
 	#include <libavcodec/avcodec.h>
@@ -51,13 +54,14 @@ timelineBorder, browserBorder, effectsBorder;
 // NOTE:IMPORTANT: Video clips MUST be initalized to zero.
 struct VideoClip
 {
-	AVFormatContext    *avFormatCtx;
-	AVCodecContext     *videoCodecCtx;
-	AVCodec            *videoCodec;
-	AVFrame            *avFrame;
+	AVFormatContext    *formatCtx;
+	AVCodecContext     *codecCtx;
+	AVCodec            *codec;
+	AVStream           *stream;
+	AVFrame            *frame;
 	AVPacket            packet;
 	struct SwsContext  *swsCtx;
-	int                 videoStreamIndex;
+	int                 streamIndex;
 	SDL_Texture        *texture;
 	SDL_Rect            srcRect;
 	SDL_Rect            destRect;
@@ -67,9 +71,9 @@ struct VideoClip
 	uint8              *uPlane; 
 	uint8              *vPlane;
 	int32               uvPitch;
-	bool								loop;
 	const char         *filename;
 	float               framerate;
+	float               avgFramerate;
 	int                 aspectRatioW;
 	int                 aspectRatioH;
 	float               aspectRatioF;
@@ -77,6 +81,7 @@ struct VideoClip
 	int                 frameCount;
 	int                 width;
 	int                 height;
+	bool								loop;
 };
 
 struct AudioClip
@@ -93,10 +98,10 @@ struct AVClip
 // as SDL still needs it for video resizing.
 void freeVideoClip(VideoClip *clip)
 {
-	av_frame_free(&clip->avFrame);
-	avcodec_close(clip->videoCodecCtx);
-	avformat_close_input(&clip->avFormatCtx);
-	free(clip->avFormatCtx);
+	av_frame_free(&clip->frame);
+	avcodec_close(clip->codecCtx);
+	avformat_close_input(&clip->formatCtx);
+	free(clip->formatCtx);
 	free(clip->yPlane);
 	free(clip->uPlane);
 	free(clip->vPlane);
@@ -111,75 +116,75 @@ void freeVideoClipFull(VideoClip *clip)
 	SDL_free(clip->texture);
 }
 
-void initVideoClip(VideoClip *clip, const char *file, bool loop)
+void initVideoClip(VideoClip *clip, const char *file, bool loop, bool print)
 {
-	clip->avFormatCtx = NULL;
-	if(avformat_open_input(&clip->avFormatCtx, file, NULL, NULL) != 0)
+	clip->formatCtx = NULL;
+	if(avformat_open_input(&clip->formatCtx, file, NULL, NULL) != 0)
 	{
 		printf("Could not open file: %s.\n", file);
 		exit(-1);
 	}
 
-	clip->filename = av_strdup(clip->avFormatCtx->filename);
-	printf("FILENAME: %s\n", clip->filename);
+	clip->filename = av_strdup(clip->formatCtx->filename);
 
-	avformat_find_stream_info(clip->avFormatCtx, NULL);
+	avformat_find_stream_info(clip->formatCtx, NULL);
 
-	av_dump_format(clip->avFormatCtx, 0, file, 0); // DEBUG
+	av_dump_format(clip->formatCtx, 0, file, 0); // DEBUG
 
-	clip->videoStreamIndex = -1;
+	clip->streamIndex = -1;
 
-	for(int i = 0; i < clip->avFormatCtx->nb_streams; ++i)
+	for(int i = 0; i < clip->formatCtx->nb_streams; ++i)
 	{
-		if(clip->avFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+		if(clip->formatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
 		{
-			clip->videoStreamIndex = i;
+			clip->streamIndex = i;
+			clip->stream = clip->formatCtx->streams[clip->streamIndex];
 			break;
 		}
 	}
 
-	assert(clip->videoStreamIndex != -1);
-	AVCodecContext *videoCodecCtxOrig = 
-	clip->avFormatCtx->streams[clip->videoStreamIndex]->codec;
-	clip->videoCodec = avcodec_find_decoder(videoCodecCtxOrig->codec_id);
+	assert(clip->streamIndex != -1);
+	AVCodecContext *codecCtxOrig = 
+	clip->formatCtx->streams[clip->streamIndex]->codec;
+	clip->codec = avcodec_find_decoder(codecCtxOrig->codec_id);
 	
-	clip->videoCodecCtx	= avcodec_alloc_context3(clip->videoCodec);
-	avcodec_copy_context(clip->videoCodecCtx, videoCodecCtxOrig);
+	clip->codecCtx	= avcodec_alloc_context3(clip->codec);
+	avcodec_copy_context(clip->codecCtx, codecCtxOrig);
 
-	clip->width = clip->videoCodecCtx->width;
-	clip->height = clip->videoCodecCtx->height;
+	clip->width = clip->codecCtx->width;
+	clip->height = clip->codecCtx->height;
 
-	avcodec_close(videoCodecCtxOrig);
+	avcodec_close(codecCtxOrig);
 
-	avcodec_open2(clip->videoCodecCtx, clip->videoCodec, NULL);
+	avcodec_open2(clip->codecCtx, clip->codec, NULL);
 
-	clip->avFrame = NULL;
-	clip->avFrame = av_frame_alloc();
+	clip->frame = NULL;
+	clip->frame = av_frame_alloc();
 
-	clip->swsCtx = sws_getContext(clip->videoCodecCtx->width,
-	                              clip->videoCodecCtx->height,
-	                              clip->videoCodecCtx->pix_fmt,
-	                              clip->videoCodecCtx->width,
-	                              clip->videoCodecCtx->height,
+	clip->swsCtx = sws_getContext(clip->codecCtx->width,
+	                              clip->codecCtx->height,
+	                              clip->codecCtx->pix_fmt,
+	                              clip->codecCtx->width,
+	                              clip->codecCtx->height,
 	                              AV_PIX_FMT_YUV420P,
 	                              SWS_BILINEAR,
 	                              NULL,
 	                              NULL,
 	                              NULL);
 
-	clip->yPlaneSz = clip->videoCodecCtx->width * clip->videoCodecCtx->height;
-	clip->uvPlaneSz = clip->videoCodecCtx->width * clip->videoCodecCtx->height / 4;
+	clip->yPlaneSz = clip->codecCtx->width * clip->codecCtx->height;
+	clip->uvPlaneSz = clip->codecCtx->width * clip->codecCtx->height / 4;
 	clip->yPlane = (uint8 *)malloc(clip->yPlaneSz);
 	clip->uPlane = (uint8 *)malloc(clip->uvPlaneSz);
 	clip->vPlane = (uint8 *)malloc(clip->uvPlaneSz);
 
-	clip->uvPitch = clip->videoCodecCtx->width / 2;
+	clip->uvPitch = clip->codecCtx->width / 2;
 
 	clip->srcRect;
 	clip->srcRect.x = 0;
 	clip->srcRect.y = 0;
-	clip->srcRect.w = clip->videoCodecCtx->width;
-	clip->srcRect.h = clip->videoCodecCtx->height;
+	clip->srcRect.w = clip->codecCtx->width;
+	clip->srcRect.h = clip->codecCtx->height;
 
 	int windowWidth, windowHeight;
 	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
@@ -194,75 +199,116 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 		clip->texture = SDL_CreateTexture(renderer,
 		                                  SDL_PIXELFORMAT_YV12,
 		                                  SDL_TEXTUREACCESS_STREAMING,
-		                                  clip->videoCodecCtx->width,
-		                                  clip->videoCodecCtx->height);
+		                                  clip->codecCtx->width,
+		                                  clip->codecCtx->height);
 	}
 
-	// AVRational returns a numerator and denomimator to divide to get a fractional value
-	AVRational fr = clip->videoCodecCtx->framerate;
+	// Use the video stream to get the real base framerate and average framerates
+	clip->stream = clip->formatCtx->streams[clip->streamIndex];
+	AVRational fr = clip->stream->r_frame_rate;
+	AVRational afr = clip->stream->avg_frame_rate;
 	clip->framerate = (float)fr.num / (float)fr.den;
-	printf("Framerate: %.2ffps\n", clip->framerate);
+	clip->avgFramerate = (float)afr.num / (float)afr.den;
+	
 
 	// Use av_reduce() to reduce a fraction to get the width and height of the clip's aspect ratio
 	av_reduce(&clip->aspectRatioW, &clip->aspectRatioH,
-	          clip->videoCodecCtx->width,
-	          clip->videoCodecCtx->height,
+	          clip->codecCtx->width,
+	          clip->codecCtx->height,
 	          24);
 	clip->aspectRatioF = (float)clip->aspectRatioW / (float)clip->aspectRatioH;
-	printf("Aspect Ratio: (%f), [%d:%d]\n", clip->aspectRatioF, 
-	       clip->aspectRatioW, clip->aspectRatioH);
+	
 
 	clip->loop = loop;
 
 	clip->currentFrame = -1;
 
-	clip->frameCount = clip->avFormatCtx->streams[clip->videoStreamIndex]->nb_frames;
+	clip->frameCount = clip->stream->nb_frames;
 
-	avcodec_close(videoCodecCtxOrig);
+	avcodec_close(codecCtxOrig);
+
+	if(print)
+	{
+		printf("FILENAME: %s\n", clip->filename);
+		printf("Duration: ");
+		if (clip->formatCtx->duration != AV_NOPTS_VALUE)
+		{
+			int64 duration = clip->formatCtx->duration + 
+			                   (clip->formatCtx->duration <= INT64_MAX - 5000 ? 5000 : 0);
+			int secs = duration / AV_TIME_BASE;
+			int us = duration % AV_TIME_BASE;
+			int mins = secs / 60;
+			secs %= 60;
+			int hours = mins / 60;
+			mins %= 60;
+			printf("%02d:%02d:%02d.%02d\n", hours, mins, secs, (100 * us) / AV_TIME_BASE);
+		}
+		if (clip->formatCtx->start_time != AV_NOPTS_VALUE)
+		{
+			int secs, us;
+			printf("Start time: ");
+			secs = clip->formatCtx->start_time / AV_TIME_BASE;
+			us   = llabs(clip->formatCtx->start_time % AV_TIME_BASE);
+			printf("%d.%02d\n", secs, (int) av_rescale(us, 1000000, AV_TIME_BASE));
+		}
+		printf("Video bitrate: ");
+		if (clip->formatCtx->bit_rate) printf("%d kb/s\n", (int64_t)clip->formatCtx->bit_rate / 1000);
+		else printf("N/A\n");
+		printf("Width/Height: %dx%d\n", clip->width, clip->height);
+		printf("Real based framerate: %.2ffps\n", clip->framerate);
+		printf("Average framerate: %.2fps\n", clip->avgFramerate);
+		printf("Aspect Ratio: (%f), [%d:%d]\n", clip->aspectRatioF, 
+		       clip->aspectRatioW, clip->aspectRatioH);
+		printf("Number of frames: ");
+		if(clip->frameCount) printf("%d\n", clip->frameCount);
+		else printf("unknown\n");
+		printf("\n");
+	}
 }
 
 int playVideoClip(void *data)
 {
 	VideoClip *clip = (VideoClip *)data;
 	int frameFinished;
-	if(av_read_frame(clip->avFormatCtx, &clip->packet) >= 0)
+	if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
 	{
-		if(clip->packet.stream_index == clip->videoStreamIndex)
+		if(clip->packet.stream_index == clip->streamIndex)
 		{
-			avcodec_decode_video2(clip->videoCodecCtx, clip->avFrame, 
-			                      &frameFinished, &clip->packet);
-			if(frameFinished)
+			do
 			{
-				AVPicture pict;
-				pict.data[0] = clip->yPlane;
-				pict.data[1] = clip->uPlane;
-				pict.data[2] = clip->vPlane;
-				pict.linesize[0] = clip->videoCodecCtx->width;
-				pict.linesize[1] = clip->uvPitch;
-				pict.linesize[2] = clip->uvPitch;
+				avcodec_decode_video2(clip->codecCtx, clip->frame, 
+				                      &frameFinished, &clip->packet);
+			} while(!frameFinished);
 
-				sws_scale(clip->swsCtx, (uint8 const * const *)clip->avFrame->data, 
-				          clip->avFrame->linesize, 
-				          0, clip->videoCodecCtx->height, pict.data, pict.linesize);
+			AVPicture pict;
+			pict.data[0] = clip->yPlane;
+			pict.data[1] = clip->uPlane;
+			pict.data[2] = clip->vPlane;
+			pict.linesize[0] = clip->codecCtx->width;
+			pict.linesize[1] = clip->uvPitch;
+			pict.linesize[2] = clip->uvPitch;
 
-				SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
-				                     clip->videoCodecCtx->width, clip->uPlane,
-				                     clip->uvPitch, clip->vPlane, clip->uvPitch);
+			sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, 
+			          clip->frame->linesize, 
+			          0, clip->codecCtx->height, pict.data, pict.linesize);
 
-				clip->currentFrame = clip->avFrame->coded_picture_number;
-			}
+			SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
+			                     clip->codecCtx->width, clip->uPlane,
+			                     clip->uvPitch, clip->vPlane, clip->uvPitch);
+
+			clip->currentFrame = clip->frame->coded_picture_number;
 		}
-		av_free_packet(&clip->packet);
 	}
 	else
 	{
 		av_free_packet(&clip->packet);
-		av_frame_free(&clip->avFrame);
+		av_frame_free(&clip->frame);
 		if(clip->loop)
 		{
 			// TODO: This is bad. Real bad. Find a better way to do this.
 			freeVideoClip(clip);
-			initVideoClip(clip, clip->filename, true);
+			initVideoClip(clip, clip->filename, true, false);
+			printf("Looped clip: %s\n", clip->filename);
 		}
 	}
 
@@ -421,11 +467,11 @@ void resizeAllWindowElements(SDL_Window *window,
 	}
 	else
 	{
-		currentViewW = clip->videoCodecCtx->width;
-		currentViewH = clip->videoCodecCtx->height;
+		currentViewW = clip->codecCtx->width;
+		currentViewH = clip->codecCtx->height;
 
-		compositeViewW = clip->videoCodecCtx->width;
-		compositeViewH = clip->videoCodecCtx->height;
+		compositeViewW = clip->codecCtx->width;
+		compositeViewH = clip->codecCtx->height;
 	}
 	// (??? STC ???)) >
 
@@ -547,7 +593,7 @@ const char *watamote = "../res/watamote.webm";
 
 int main(int argc, char **argv)
 {
-	printf("Hello world.\n");
+	printf("Hello world.\n\n");
 
 	av_register_all();
 
@@ -566,16 +612,14 @@ int main(int argc, char **argv)
 
 	const char *fname;
 	if(argv[1]) fname = argv[1];
-	else fname = Anime404mp4;
+	else fname = trump; // DEBUG FILENAME
 
 	// TODO: List of clips to pass around
 	VideoClip clip0 = {};
-	initVideoClip(&clip0, fname, true);
+	initVideoClip(&clip0, fname, true, true);
 
 	int frameFinished;
 	bool signalFinished = true;
-
-	printf("Framecount: %d\n", clip0.frameCount);
 
 	resizeAllWindowElements(window, 
 	                        &currentViewBack, &compositeViewBack,
