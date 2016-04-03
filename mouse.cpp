@@ -25,6 +25,22 @@ extern "C"
 #include "datatypes.h"
 #include "colors.h"
 
+global const char *Anime404mp4 = "../res/Anime404.mp4";
+global const char *Anime404webm= "../res/Anime404.webm";
+global const char *dance = "../res/dance.mp4";
+global const char *froggy = "../res/froggy.gif";
+global const char *groggy = "../res/groggy.gif";
+global const char *h2bmkv = "../res/h2b.mkv"; // FIXME: Does not decode correctly
+global const char *h2bmp4 = "../res/h2b.mp4";
+global const char *kiloshelos = "../res/kiloshelos.mp4";
+global const char *nggyu = "../res/nggyu.mp4";
+global const char *pepsimanmvk = "../res/PEPSI-MAN.mkv";
+global const char *pepsimanmp4 = "../res/PEPSI-MAN.mp4";
+global const char *ruskie = "../res/ruskie.webm";
+global const char *trump = "../res/trump.webm";
+global const char *vapor = "../res/vapor.webm";
+global const char *watamote = "../res/watamote.webm";
+
 global bool Global_Running = true;
 global bool Global_Paused = false;
 
@@ -40,6 +56,7 @@ global bool Global_Show_Transform_Tool = false;
 // TODO: List of view rectangles to pass around
 global SDL_Rect currentViewBack, compositeViewBack, currentView, compositeView,
 timelineView, browserView, effectsView;
+
 
 struct Border
 {
@@ -85,6 +102,8 @@ struct VideoClip
 	int                 height;
 	bool								loop;
 };
+
+global VideoClip Global_VideoClip = {};
 
 struct AudioClip
 {
@@ -691,6 +710,66 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					if(!Global_Show_Transform_Tool) Global_Show_Transform_Tool = true;
 					else Global_Show_Transform_Tool = false;
 				} break;
+				case SDLK_1:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, Anime404mp4, true);
+				} break;
+				case SDLK_2:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, h2bmp4, true);
+				} break;
+				case SDLK_3:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, kiloshelos, true);
+				} break;
+				case SDLK_4:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, dance, true);
+				} break;
+				case SDLK_5:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, trump, true);
+				} break;
+				case SDLK_6:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, nggyu, true);
+				} break;
+				case SDLK_7:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, froggy, true);
+				} break;
+				case SDLK_8:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, groggy, true);
+				} break;
+				case SDLK_9:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, ruskie, true);
+				} break;
+				case SDLK_0:
+				{
+					freeVideoClipFull(&Global_VideoClip);
+					Global_VideoClip = {};
+					initVideoClip(&Global_VideoClip, watamote, true);
+				} break;
 			}
 		}
 		if(event.type == SDL_WINDOWEVENT)
@@ -722,22 +801,6 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 	}
 }
 
-const char *Anime404mp4 = "../res/Anime404.mp4";
-const char *Anime404webm= "../res/Anime404.webm";
-const char *dance = "../res/dance.mp4";
-const char *froggy = "../res/froggy.gif";
-const char *groggy = "../res/groggy.gif";
-const char *h2bmkv = "../res/h2b.mkv"; // FIXME: Does not decode correctly
-const char *h2bmp4 = "../res/h2b.mp4";
-const char *kiloshelos = "../res/kiloshelos.mp4";
-const char *nggyu = "../res/nggyu.mp4";
-const char *pepsimanmvk = "../res/PEPSI-MAN.mkv";
-const char *pepsimanmp4 = "../res/PEPSI-MAN.mp4";
-const char *ruskie = "../res/ruskie.webm";
-const char *trump = "../res/trump.webm";
-const char *vapor = "../res/vapor.webm";
-const char *watamote = "../res/watamote.webm";
-
 int main(int argc, char **argv)
 {
 	printf("Hello world.\n\n");
@@ -759,12 +822,11 @@ int main(int argc, char **argv)
 
 	const char *fname;
 	if(argv[1]) fname = argv[1];
-	else fname = h2bmp4; // DEBUG FILENAME
+	else fname = Anime404mp4; // DEBUG FILENAME
 
 	// TODO: List of clips to pass around
-	VideoClip clip0 = {};
-	initVideoClip(&clip0, fname, true);
-	printClipInfo(&clip0);
+	initVideoClip(&Global_VideoClip, Anime404mp4, true);
+	printClipInfo(&Global_VideoClip);
 
 	resizeAllWindowElements(window, 
 	                        &currentViewBack, &compositeViewBack,
@@ -777,21 +839,21 @@ int main(int argc, char **argv)
 	                        &timelineBorder,
 	                        &browserBorder,
 	                        &effectsBorder,
-	                        &clip0);
+	                        &Global_VideoClip);
 
 	Global_Paused = true; // DEBUG
 	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
 	while(Global_Running)
 	{
-		HandleEvents(event, &clip0);
+		HandleEvents(event, &Global_VideoClip);
 		SDL_GetWindowSize(window, &windowWidth, &windowHeight);
 		if(!Global_Paused)
 		{
-			playVideoClip(&clip0);
+			playVideoClip(&Global_VideoClip);
 		}
 
-		//printf("current frame: %d\n", clip0.currentFrame);
+		//printf("current frame: %d\n", Global_VideoClip.currentFrame);
 
 		SDL_SetRenderDrawColor(renderer, 
 		                       tcBackground.r, 
@@ -812,8 +874,8 @@ int main(int argc, char **argv)
 		SDL_RenderFillRect(renderer, &compositeView);
 
 		// TODO: Render copy list of videos....
-		SDL_RenderCopy(renderer, clip0.texture, &clip0.srcRect, &currentView);
-		SDL_RenderCopy(renderer, clip0.texture, &clip0.srcRect, &compositeView);
+		SDL_RenderCopy(renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &currentView);
+		SDL_RenderCopy(renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &compositeView);
 
 		setRenderColor(renderer, tcView);
 		SDL_RenderFillRect(renderer, &browserView);
@@ -829,7 +891,7 @@ int main(int argc, char **argv)
 
 		if(Global_Show_Transform_Tool)
 		{
-			drawClipTransformControls(renderer, &clip0);
+			drawClipTransformControls(renderer, &Global_VideoClip);
 		}
 
 		SDL_RenderPresent(renderer);
@@ -837,7 +899,7 @@ int main(int argc, char **argv)
 
 	SDL_Quit();
 
-	freeVideoClipFull(&clip0);
+	freeVideoClipFull(&Global_VideoClip);
 	
 	printf("\nGoodbye.\n");
 
