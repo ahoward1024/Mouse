@@ -35,6 +35,8 @@ global SDL_Renderer *renderer;
 global int Global_AspectRatio_W = 16;
 global int Global_AspectRatio_H = 9;
 
+global bool Global_Show_Transform_Tool = false;
+
 // TODO: List of view rectangles to pass around
 global SDL_Rect currentViewBack, compositeViewBack, currentView, compositeView,
 timelineView, browserView, effectsView;
@@ -107,8 +109,6 @@ void freeVideoClip(VideoClip *clip)
 	free(clip->vPlane);
 }
 
-// Window will hang completely if resized AFTER A CLIP LOOPS.
-// This has something to do with freeing the clips texture.
 // This will free the clip entirely so it CANNOT be used again.
 void freeVideoClipFull(VideoClip *clip)
 {
@@ -116,7 +116,91 @@ void freeVideoClipFull(VideoClip *clip)
 	SDL_free(clip->texture);
 }
 
-void initVideoClip(VideoClip *clip, const char *file, bool loop, bool print)
+int playVideoClip(void *data)
+{
+	VideoClip *clip = (VideoClip *)data;
+	int frameFinished;
+	if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
+	{
+		if(clip->packet.stream_index == clip->streamIndex)
+		{
+			do
+			{
+				avcodec_decode_video2(clip->codecCtx, clip->frame, &frameFinished, &clip->packet);
+			} while(!frameFinished);
+
+			AVPicture pict;
+			pict.data[0] = clip->yPlane;
+			pict.data[1] = clip->uPlane;
+			pict.data[2] = clip->vPlane;
+			pict.linesize[0] = clip->codecCtx->width;
+			pict.linesize[1] = clip->uvPitch;
+			pict.linesize[2] = clip->uvPitch;
+
+			sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, 
+			          clip->frame->linesize, 
+			          0, clip->codecCtx->height, pict.data, pict.linesize);
+
+			SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
+			                     clip->codecCtx->width, clip->uPlane,
+			                     clip->uvPitch, clip->vPlane, clip->uvPitch);
+
+			clip->currentFrame = clip->frame->coded_picture_number;
+		}
+	}
+	else
+	{
+		av_free_packet(&clip->packet);
+		if(clip->loop)
+		{
+			av_seek_frame(clip->formatCtx, clip->streamIndex, 0, AVSEEK_FLAG_FRAME);
+			printf("Looped clip: %s\n", clip->filename);
+		}
+	}
+
+	return 0;
+}
+
+// Print the video clip animation
+void printClipInfo(VideoClip *clip)
+{
+	printf("FILENAME: %s\n", clip->filename);
+	printf("Duration: ");
+	if (clip->formatCtx->duration != AV_NOPTS_VALUE)
+	{
+		int64 duration = clip->formatCtx->duration + 
+		(clip->formatCtx->duration <= INT64_MAX - 5000 ? 5000 : 0);
+		int secs = duration / AV_TIME_BASE;
+		int us = duration % AV_TIME_BASE;
+		int mins = secs / 60;
+		secs %= 60;
+		int hours = mins / 60;
+		mins %= 60;
+		printf("%02d:%02d:%02d.%02d\n", hours, mins, secs, (100 * us) / AV_TIME_BASE);
+	}
+	if (clip->formatCtx->start_time != AV_NOPTS_VALUE)
+	{
+		int secs, us;
+		printf("Start time: ");
+		secs = clip->formatCtx->start_time / AV_TIME_BASE;
+		us   = llabs(clip->formatCtx->start_time % AV_TIME_BASE);
+		printf("%d.%02d\n", secs, (int) av_rescale(us, 1000000, AV_TIME_BASE));
+	}
+	printf("Video bitrate: ");
+	if (clip->formatCtx->bit_rate) printf("%d kb/s\n", (int64_t)clip->formatCtx->bit_rate / 1000);
+	else printf("N/A\n");
+	printf("Width/Height: %dx%d\n", clip->width, clip->height);
+	printf("Real based framerate: %.2ffps\n", clip->framerate);
+	printf("Average framerate: %.2fps\n", clip->avgFramerate);
+	printf("Aspect Ratio: (%f), [%d:%d]\n", clip->aspectRatioF, 
+	       clip->aspectRatioW, clip->aspectRatioH);
+	printf("Number of frames: ");
+	if(clip->frameCount) printf("%d\n", clip->frameCount);
+	else printf("unknown\n");
+	printf("\n");
+}
+
+void initVideoClip(VideoClip *clip, const char *file, bool loop)
 {
 	clip->formatCtx = NULL;
 	if(avformat_open_input(&clip->formatCtx, file, NULL, NULL) != 0)
@@ -206,18 +290,16 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop, bool print)
 	// Use the video stream to get the real base framerate and average framerates
 	clip->stream = clip->formatCtx->streams[clip->streamIndex];
 	AVRational fr = clip->stream->r_frame_rate;
-	AVRational afr = clip->stream->avg_frame_rate;
 	clip->framerate = (float)fr.num / (float)fr.den;
+	AVRational afr = clip->stream->avg_frame_rate;
 	clip->avgFramerate = (float)afr.num / (float)afr.den;
 	
-
 	// Use av_reduce() to reduce a fraction to get the width and height of the clip's aspect ratio
 	av_reduce(&clip->aspectRatioW, &clip->aspectRatioH,
 	          clip->codecCtx->width,
 	          clip->codecCtx->height,
-	          24);
+	          128);
 	clip->aspectRatioF = (float)clip->aspectRatioW / (float)clip->aspectRatioH;
-	
 
 	clip->loop = loop;
 
@@ -226,93 +308,43 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop, bool print)
 	clip->frameCount = clip->stream->nb_frames;
 
 	avcodec_close(codecCtxOrig);
-
-	if(print)
-	{
-		printf("FILENAME: %s\n", clip->filename);
-		printf("Duration: ");
-		if (clip->formatCtx->duration != AV_NOPTS_VALUE)
-		{
-			int64 duration = clip->formatCtx->duration + 
-			                   (clip->formatCtx->duration <= INT64_MAX - 5000 ? 5000 : 0);
-			int secs = duration / AV_TIME_BASE;
-			int us = duration % AV_TIME_BASE;
-			int mins = secs / 60;
-			secs %= 60;
-			int hours = mins / 60;
-			mins %= 60;
-			printf("%02d:%02d:%02d.%02d\n", hours, mins, secs, (100 * us) / AV_TIME_BASE);
-		}
-		if (clip->formatCtx->start_time != AV_NOPTS_VALUE)
-		{
-			int secs, us;
-			printf("Start time: ");
-			secs = clip->formatCtx->start_time / AV_TIME_BASE;
-			us   = llabs(clip->formatCtx->start_time % AV_TIME_BASE);
-			printf("%d.%02d\n", secs, (int) av_rescale(us, 1000000, AV_TIME_BASE));
-		}
-		printf("Video bitrate: ");
-		if (clip->formatCtx->bit_rate) printf("%d kb/s\n", (int64_t)clip->formatCtx->bit_rate / 1000);
-		else printf("N/A\n");
-		printf("Width/Height: %dx%d\n", clip->width, clip->height);
-		printf("Real based framerate: %.2ffps\n", clip->framerate);
-		printf("Average framerate: %.2fps\n", clip->avgFramerate);
-		printf("Aspect Ratio: (%f), [%d:%d]\n", clip->aspectRatioF, 
-		       clip->aspectRatioW, clip->aspectRatioH);
-		printf("Number of frames: ");
-		if(clip->frameCount) printf("%d\n", clip->frameCount);
-		else printf("unknown\n");
-		printf("\n");
-	}
-}
-
-int playVideoClip(void *data)
-{
-	VideoClip *clip = (VideoClip *)data;
+	// Decode the first video frame
 	int frameFinished;
-	if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
+	bool gotFirstVideoFrame = false;
+	while(!gotFirstVideoFrame)
 	{
-		if(clip->packet.stream_index == clip->streamIndex)
+		if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
 		{
-			do
+			if(clip->packet.stream_index == clip->streamIndex)
 			{
-				avcodec_decode_video2(clip->codecCtx, clip->frame, 
-				                      &frameFinished, &clip->packet);
-			} while(!frameFinished);
+				do
+				{
+					avcodec_decode_video2(clip->codecCtx, clip->frame, &frameFinished, &clip->packet);
+				} while(!frameFinished);
 
-			AVPicture pict;
-			pict.data[0] = clip->yPlane;
-			pict.data[1] = clip->uPlane;
-			pict.data[2] = clip->vPlane;
-			pict.linesize[0] = clip->codecCtx->width;
-			pict.linesize[1] = clip->uvPitch;
-			pict.linesize[2] = clip->uvPitch;
+				AVPicture pict;
+				pict.data[0] = clip->yPlane;
+				pict.data[1] = clip->uPlane;
+				pict.data[2] = clip->vPlane;
+				pict.linesize[0] = clip->codecCtx->width;
+				pict.linesize[1] = clip->uvPitch;
+				pict.linesize[2] = clip->uvPitch;
 
-			sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, 
-			          clip->frame->linesize, 
-			          0, clip->codecCtx->height, pict.data, pict.linesize);
+				sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, 
+				          clip->frame->linesize, 
+				          0, clip->codecCtx->height, pict.data, pict.linesize);
 
-			SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
-			                     clip->codecCtx->width, clip->uPlane,
-			                     clip->uvPitch, clip->vPlane, clip->uvPitch);
+				SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
+				                     clip->codecCtx->width, clip->uPlane,
+				                     clip->uvPitch, clip->vPlane, clip->uvPitch);
 
-			clip->currentFrame = clip->frame->coded_picture_number;
+				clip->currentFrame = clip->frame->coded_picture_number;
+
+				gotFirstVideoFrame = true;
+			}
 		}
 	}
-	else
-	{
-		av_free_packet(&clip->packet);
-		av_frame_free(&clip->frame);
-		if(clip->loop)
-		{
-			// TODO: This is bad. Real bad. Find a better way to do this.
-			freeVideoClip(clip);
-			initVideoClip(clip, clip->filename, true, false);
-			printf("Looped clip: %s\n", clip->filename);
-		}
-	}
-
-	return 0;
+	av_free_packet(&clip->packet);
 }
 
 void setClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)
@@ -322,6 +354,126 @@ void setClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)
 	if(x < 0 || y < 0 || x > width || y > height) return;
 	clip->destRect.x = x;
 	clip->destRect.y = y;
+}
+
+void copyRect(SDL_Rect *dest, SDL_Rect *src)
+{
+	dest->x = src->x;
+	dest->y = src->y;
+	dest->w = src->w;
+	dest->h = src->h;
+}
+
+void setRenderColor(SDL_Renderer *renderer, tColor color, uint8 alpha)
+{
+	SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, alpha);
+}
+
+void setRenderColor(SDL_Renderer *renderer, tColor color)
+{
+	SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+}
+
+// TODO: Clean drawClipTransformControls() up
+void drawClipTransformControls(SDL_Renderer *renderer, VideoClip *clip)
+{
+
+	SDL_Rect r = clip->destRect;
+
+	SDL_Rect i;
+	SDL_Rect b;
+
+	i.x = r.x - 2;
+	i.y = r.y - 2;
+	i.w = 4;
+	i.h = 4;
+
+	b.x = i.x - 1;
+	b.y = i.y - 1;
+	b.w = 7;
+	b.h = 7;
+
+	// TOP ROW
+	{
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);
+
+		i.y = r.y + (r.h / 2);
+		b.y = i.y - 1;
+
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);
+
+		i.y = r.y + r.h - i.h;
+		b.y = i.y - 1;
+
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);	
+	}
+	i.x = r.x + (r.w / 2) - i.w;
+	b.x = i.x - 1;
+
+	// MIDDLE ROW
+	{
+		i.y = r.y;
+		b.y = i.y - 1;
+
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);
+
+		i.y = r.y + (r.h / 2) - i.h;
+		b.y = i.y - 1;
+
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);
+
+		i.y = r.y + r.h - i.h;
+		b.y = i.y - 1;
+
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);
+	}
+
+	i.x = r.x + r.w - i.w;
+	b.x = i.x - 1;
+
+	// BOTTOM ROW
+	{
+		i.y = r.y - 2;
+		b.y = i.y - 1;
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);
+
+		i.y = r.y + (r.h / 2);
+		b.y = i.y - 1;
+
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);
+
+		i.y = r.y + clip->destRect.h - i.h;
+		b.y = i.y - 1;
+
+		setRenderColor(renderer, tcBlack);
+		SDL_RenderFillRect(renderer, &b);
+		setRenderColor(renderer, tcWhite);
+		SDL_RenderFillRect(renderer, &i);
+	}
 }
 
 void drawBorder(SDL_Renderer *renderer, Border b)
@@ -376,7 +528,7 @@ void buildBorder(Border *b, SDL_Rect *r, BorderSide bs)
 		b->bot.x = r->x - width;
 		b->bot.y = r->y + r->h;
 		b->bot.w = r->w + (width * 2);
-		b->bot.h = height; 
+		b->bot.h = height;
 
 		b->left.x = r->x - width;
 		b->left.y = r->y;
@@ -480,6 +632,7 @@ void resizeAllWindowElements(SDL_Window *window,
 	currentView->h = currentViewH;
 	currentView->x = currentViewBack->x + ((currentViewBack->w - currentView->w) / 2);
 	currentView->y = currentViewBack->y + ((currentViewBack->h - currentView->h) / 2);
+	copyRect(&clip->destRect, currentView);
 	buildBorder(currentBorder, currentViewBack, BORDER_SIDE_OUTSIDE);
 
 	// Put the composite clip view on the left hand side and center it in the composite 
@@ -533,6 +686,11 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					if(!Global_Paused) Global_Paused = true;
 					else Global_Paused = false;
 				} break;
+				case SDLK_t:
+				{
+					if(!Global_Show_Transform_Tool) Global_Show_Transform_Tool = true;
+					else Global_Show_Transform_Tool = false;
+				} break;
 			}
 		}
 		if(event.type == SDL_WINDOWEVENT)
@@ -564,24 +722,13 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 	}
 }
 
-void setRenderColor(SDL_Renderer *renderer, tColor color, uint8 alpha)
-{
-	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-	SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, alpha);
-	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
-}
-
-void setRenderColor(SDL_Renderer *renderer, tColor color)
-{
-	SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
-}
-
 const char *Anime404mp4 = "../res/Anime404.mp4";
 const char *Anime404webm= "../res/Anime404.webm";
 const char *dance = "../res/dance.mp4";
 const char *froggy = "../res/froggy.gif";
 const char *groggy = "../res/groggy.gif";
-const char *h2b = "../res/h2b.mkv";
+const char *h2bmkv = "../res/h2b.mkv"; // FIXME: Does not decode correctly
+const char *h2bmp4 = "../res/h2b.mp4";
 const char *kiloshelos = "../res/kiloshelos.mp4";
 const char *nggyu = "../res/nggyu.mp4";
 const char *pepsimanmvk = "../res/PEPSI-MAN.mkv";
@@ -612,14 +759,12 @@ int main(int argc, char **argv)
 
 	const char *fname;
 	if(argv[1]) fname = argv[1];
-	else fname = trump; // DEBUG FILENAME
+	else fname = h2bmp4; // DEBUG FILENAME
 
 	// TODO: List of clips to pass around
 	VideoClip clip0 = {};
-	initVideoClip(&clip0, fname, true, true);
-
-	int frameFinished;
-	bool signalFinished = true;
+	initVideoClip(&clip0, fname, true);
+	printClipInfo(&clip0);
 
 	resizeAllWindowElements(window, 
 	                        &currentViewBack, &compositeViewBack,
@@ -635,7 +780,7 @@ int main(int argc, char **argv)
 	                        &clip0);
 
 	Global_Paused = true; // DEBUG
-	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND); // DEBUG
+	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
 	while(Global_Running)
 	{
@@ -649,7 +794,10 @@ int main(int argc, char **argv)
 		//printf("current frame: %d\n", clip0.currentFrame);
 
 		SDL_SetRenderDrawColor(renderer, 
-		                       tcBackground.r, tcBackground.g, tcBackground.b, tcBackground.a);
+		                       tcBackground.r, 
+		                       tcBackground.g, 
+		                       tcBackground.b, 
+		                       tcBackground.a);
 		SDL_RenderClear(renderer);
 
 		//testBufferRects(renderer, windowWidth, windowHeight);
@@ -671,7 +819,6 @@ int main(int argc, char **argv)
 		SDL_RenderFillRect(renderer, &browserView);
 		SDL_RenderFillRect(renderer, &timelineView);
 		SDL_RenderFillRect(renderer, &effectsView);
-
 		
 		setRenderColor(renderer, tcBorder);
 		drawBorder(renderer, currentBorder);
@@ -680,6 +827,11 @@ int main(int argc, char **argv)
 		drawBorder(renderer, timelineBorder);
 		drawBorder(renderer, effectsBorder);
 
+		if(Global_Show_Transform_Tool)
+		{
+			drawClipTransformControls(renderer, &clip0);
+		}
+
 		SDL_RenderPresent(renderer);
 	}
 
@@ -687,7 +839,8 @@ int main(int argc, char **argv)
 
 	freeVideoClipFull(&clip0);
 	
-	printf("Goodbye.\n");
+	printf("\nGoodbye.\n");
 
 	return 0;
 }
+
