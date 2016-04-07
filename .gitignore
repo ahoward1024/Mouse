@@ -12,6 +12,7 @@
 *.sln
 *.obj
 *.opendb
+*.db
 \.vs
 \Debug
 

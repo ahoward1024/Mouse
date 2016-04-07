@@ -1,6 +1,3 @@
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_gfxPrimitives.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -10,6 +7,10 @@
 
 // TODO: Get rid of all of this DLL nonsense and statically compile all dependencies
 // so they are built directly into the .exe with /MT.
+
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_gfxPrimitives.h>
+#include <SDL2/SDL_ttf.h>
 
 extern "C" 
 {
@@ -24,9 +25,6 @@ extern "C"
 
 #include "datatypes.h"
 #include "colors.h"
-
-
-
 
 struct Border
 {
@@ -925,6 +923,7 @@ int main(int argc, char **argv)
 	av_register_all();
 
 	SDL_Init(SDL_INIT_VIDEO);
+	TTF_Init();
 
 	window = SDL_CreateWindow("Mouse", 
 	                          SDL_WINDOWPOS_CENTERED, 
@@ -949,6 +948,22 @@ int main(int argc, char **argv)
 
 	Global_Paused = true; // DEBUG
 	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+	// TODO: Build a font map
+	TTF_Font *font = TTF_OpenFont("../res/fonts/Anaheim-Regular.ttf", 72);
+	int fontW, fontH;
+	const char *testText = "Hello world!";
+	TTF_SizeText(font, testText, &fontW, &fontH);
+	SDL_Color color = { 0, 0, 0};
+	SDL_Surface *textSurface = TTF_RenderText_Blended(font, testText, color);
+	SDL_Texture *textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+	SDL_Rect textRect;
+	textRect.x = 10;
+	textRect.y = 10;
+	textRect.w = textSurface->w;
+	textRect.h = textSurface->h;
+
+	SDL_FreeSurface(textSurface);
 
 	while(Global_Running)
 	{
@@ -1001,10 +1016,13 @@ int main(int argc, char **argv)
 			drawClipTransformControls(renderer, &Global_VideoClip);
 		}
 
+		SDL_RenderCopy(renderer, textTexture, NULL, &textRect);
+
 		SDL_RenderPresent(renderer);
 	}
 
 	SDL_Quit();
+	TTF_Quit();
 
 	freeVideoClipFull(&Global_VideoClip);
 	
