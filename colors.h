@@ -1,6 +1,8 @@
 #ifndef COLORS_H
 #define COLORS_H
 
+// TODO: Create SDL_color for all colors
+
 // COLOR STRUCTURES
 struct fColor
 {

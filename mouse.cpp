@@ -116,8 +116,11 @@ global WindowLayout Global_Layout = LAYOUT_SINGLE;
 global bool Global_Running = true;
 global bool Global_Paused = false;
 
-global SDL_Window *window;
-global SDL_Renderer *renderer;
+global SDL_Window *Global_Window;
+global SDL_Renderer *Global_Renderer;
+
+global int Global_mousex = 0, Global_mousey = 0;
+global bool Global_mousedown = false;
 
 // TODO: Make these a user setting
 global int Global_AspectRatio_W = 16;
@@ -126,8 +129,8 @@ global int Global_AspectRatio_H = 9;
 global bool Global_Show_Transform_Tool = false;
 
 // TODO: List of view rectangles to pass around
-global SDL_Rect currentViewBack, compositeViewBack, currentView, compositeView,
-timelineView, browserView, effectsView;
+global SDL_Rect Global_currentViewBack, Global_compositeViewBack, Global_currentView, 
+Global_compositeView, Global_timelineView, Global_browserView, Global_effectsView;
 
 // This will free the clip for reinitalization, we do not free the texture
 // as SDL still needs it for video resizing.
@@ -149,53 +152,65 @@ void freeVideoClipFull(VideoClip *clip)
 	SDL_free(clip->texture);
 }
 
-int playVideoClip(void *data)
+void updateVideoClipTexture(VideoClip *clip)
 {
-	VideoClip *clip = (VideoClip *)data;
+	AVPicture pict;
+	pict.data[0] = clip->yPlane;
+	pict.data[1] = clip->uPlane;
+	pict.data[2] = clip->vPlane;
+	pict.linesize[0] = clip->codecCtx->width;
+	pict.linesize[1] = clip->uvPitch;
+	pict.linesize[2] = clip->uvPitch;
+
+	sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, 
+	          clip->frame->linesize, 
+	          0, clip->codecCtx->height, pict.data, pict.linesize);
+
+	SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
+	                     clip->codecCtx->width, clip->uPlane,
+	                     clip->uvPitch, clip->vPlane, clip->uvPitch);
+
+	clip->currentFrame = clip->frame->coded_picture_number;
+}
+
+void loop()
+{
+	/*if(clip->loop)
+	{
+		av_seek_frame(clip->formatCtx, clip->streamIndex, 0, AVSEEK_FLAG_FRAME);
+		printf("Looped clip: %s\n", clip->filename);
+	}*/
+}
+
+// Return 0 for sucessful frame, 1 for end of file or error
+int decodeVideoFrame(VideoClip *clip)
+{
 	int frameFinished;
-	if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
+	bool readFullFrame = false;
+	do
 	{
-		if(clip->packet.stream_index == clip->streamIndex)
+		if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
 		{
-			do
+			if(clip->packet.stream_index == clip->streamIndex)
 			{
-				avcodec_decode_video2(clip->codecCtx, clip->frame, &frameFinished, &clip->packet);
-			} while(!frameFinished);
-
-			AVPicture pict;
-			pict.data[0] = clip->yPlane;
-			pict.data[1] = clip->uPlane;
-			pict.data[2] = clip->vPlane;
-			pict.linesize[0] = clip->codecCtx->width;
-			pict.linesize[1] = clip->uvPitch;
-			pict.linesize[2] = clip->uvPitch;
-
-			sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, 
-			          clip->frame->linesize, 
-			          0, clip->codecCtx->height, pict.data, pict.linesize);
-
-			SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
-			                     clip->codecCtx->width, clip->uPlane,
-			                     clip->uvPitch, clip->vPlane, clip->uvPitch);
-
-			clip->currentFrame = clip->frame->coded_picture_number;
+				do
+				{
+					avcodec_decode_video2(clip->codecCtx, clip->frame, &frameFinished, &clip->packet);
+				} while(!frameFinished);
+				readFullFrame = true;
+			}
 		}
-	}
-	else
-	{
-		av_free_packet(&clip->packet);
-		if(clip->loop)
+		else
 		{
-			av_seek_frame(clip->formatCtx, clip->streamIndex, 0, AVSEEK_FLAG_FRAME);
-			printf("Looped clip: %s\n", clip->filename);
+			return 1;
 		}
-	}
+	} while(!readFullFrame);
 
 	return 0;
 }
 
 // Print the video clip animation
-void printClipInfo(VideoClip *clip)
+void printVideoClipInfo(VideoClip *clip)
 {
 	printf("FILENAME: %s\n", clip->filename);
 	printf("Duration: ");
@@ -304,7 +319,7 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 	clip->srcRect.h = clip->codecCtx->height;
 
 	int windowWidth, windowHeight;
-	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+	SDL_GetWindowSize(Global_Window, &windowWidth, &windowHeight);
 	SDL_Rect videoDestRect;
 	clip->destRect.x = 0;
 	clip->destRect.y = 0;
@@ -313,7 +328,7 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 
 	if(!clip->texture) 
 	{
-		clip->texture = SDL_CreateTexture(renderer,
+		clip->texture = SDL_CreateTexture(Global_Renderer,
 		                                  SDL_PIXELFORMAT_YV12,
 		                                  SDL_TEXTUREACCESS_STREAMING,
 		                                  clip->codecCtx->width,
@@ -363,8 +378,7 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 				pict.linesize[1] = clip->uvPitch;
 				pict.linesize[2] = clip->uvPitch;
 
-				sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, 
-				          clip->frame->linesize, 
+				sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, clip->frame->linesize, 
 				          0, clip->codecCtx->height, pict.data, pict.linesize);
 
 				SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
@@ -387,6 +401,26 @@ void setClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)
 	if(x < 0 || y < 0 || x > width || y > height) return;
 	clip->destRect.x = x;
 	clip->destRect.y = y;
+}
+
+bool isInsideRect(SDL_Rect rect, int mx, int my)
+{
+	int x1, x2, y1, y2;
+	int A, B, C, D;
+	x1 = rect.x;
+	y1 = rect.y;
+	x2 = x1;
+	y2 = y1 + rect.h;
+
+	A = -(y2 - y1);
+	B = x2 - x1;
+	C = -(A * x1 + B * y1);
+
+	D = A * mx + B * my + C;
+
+	if(D == 0) return true;
+
+	return false;
 }
 
 void copyRect(SDL_Rect *dest, SDL_Rect *src)
@@ -499,7 +533,7 @@ void drawClipTransformControls(SDL_Renderer *renderer, VideoClip *clip)
 		setRenderColor(renderer, tcWhite);
 		SDL_RenderFillRect(renderer, &i);
 
-		i.y = r.y + clip->destRect.h - i.h;
+		i.y = r.y + r.h - i.h;
 		b.y = i.y - 1;
 
 		setRenderColor(renderer, tcBlack);
@@ -579,7 +613,7 @@ void dualLayout()
 	int windowWidth, windowHeight, hwidth, hheight, backViewW, backViewH, 
 	currentViewW, currentViewH, compositeViewW, compositeViewH;
 
-	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+	SDL_GetWindowSize(Global_Window, &windowWidth, &windowHeight);
 	hwidth = windowWidth / 2;
 	hheight = windowHeight / 2;
 
@@ -595,20 +629,20 @@ void dualLayout()
 
 	// Create the view rectangles for the background of the current and composite views
 	// Fit the current view background into an output aspect ratio rectangle on the left side
-	currentViewBack.w = backViewW;
-	currentViewBack.h = backViewH;	
-	currentViewBack.x = bufferSpace + 
-	(((hwidth - (bufferSpace * 2)) - currentViewBack.w) / 2);
-	currentViewBack.y = bufferSpace + 
-	(((hheight - (bufferSpace * 2)) - currentViewBack.h) / 2);
+	Global_currentViewBack.w = backViewW;
+	Global_currentViewBack.h = backViewH;	
+	Global_currentViewBack.x = bufferSpace + 
+	(((hwidth - (bufferSpace * 2)) - Global_currentViewBack.w) / 2);
+	Global_currentViewBack.y = bufferSpace + 
+	(((hheight - (bufferSpace * 2)) - Global_currentViewBack.h) / 2);
 
 	// Fit the current view background into an output aspect ratio rectangle on the right side
-	compositeViewBack.w = backViewW;
-	compositeViewBack.h = backViewH;
-	compositeViewBack.x = (windowWidth / 2) + bufferSpace + 
-	(((hwidth - (bufferSpace * 2)) - compositeViewBack.w) / 2);
-	compositeViewBack.y = bufferSpace + (((hheight - (bufferSpace * 2)) - 
-	                                      compositeViewBack.h) / 2);
+	Global_compositeViewBack.w = backViewW;
+	Global_compositeViewBack.h = backViewH;
+	Global_compositeViewBack.x = (windowWidth / 2) + bufferSpace + 
+	(((hwidth - (bufferSpace * 2)) - Global_compositeViewBack.w) / 2);
+	Global_compositeViewBack.y = bufferSpace + (((hheight - (bufferSpace * 2)) - 
+	                                      Global_compositeViewBack.h) / 2);
 
   // (??? STC ???) <
 	// If the clip is bigger than the back views then we just resize it to be the back view
@@ -619,7 +653,7 @@ void dualLayout()
 	{
 		// Find the nearest rectangle to fit the clip's aspect ratio into the view backgrounds
 		for(int w = 0, h = 0; 
-		    w <= currentViewBack.w && h <= currentViewBack.h; 
+		    w <= Global_currentViewBack.w && h <= Global_currentViewBack.h; 
 		    w += Global_VideoClip.aspectRatioW, h += Global_VideoClip.aspectRatioH)
 		{
 			currentViewW = w;
@@ -628,7 +662,7 @@ void dualLayout()
 
 		// Find the nearest rectangle to fit the clip's aspect ratio into the view backgrounds
 		for(int w = 0, h = 0; 
-		    w <= compositeViewBack.w && h <= compositeViewBack.h; 
+		    w <= Global_compositeViewBack.w && h <= Global_compositeViewBack.h; 
 		    w += Global_VideoClip.aspectRatioW, h += Global_VideoClip.aspectRatioH)
 		{
 			compositeViewW = w;
@@ -646,42 +680,42 @@ void dualLayout()
 	// (??? STC ???)) >
 
 	// Put the current clip view on the right hand side and center it in the current view background
-	currentView.w = currentViewW;
-	currentView.h = currentViewH;
-	currentView.x = currentViewBack.x + ((currentViewBack.w - currentView.w) / 2);
-	currentView.y = currentViewBack.y + ((currentViewBack.h - currentView.h) / 2);
-	copyRect(&Global_VideoClip.destRect, &currentView);
+	Global_currentView.w = currentViewW;
+	Global_currentView.h = currentViewH;
+	Global_currentView.x = Global_currentViewBack.x + ((Global_currentViewBack.w - Global_currentView.w) / 2);
+	Global_currentView.y = Global_currentViewBack.y + ((Global_currentViewBack.h - Global_currentView.h) / 2);
+	copyRect(&Global_VideoClip.destRect, &Global_currentView);
 	//buildBorder(&currentBorder, &currentViewBack, BORDER_SIDE_OUTSIDE);
 
 	// Put the composite clip view on the left hand side and center it in the composite 
 	// view background
-	compositeView.w = compositeViewW;
-	compositeView.h = compositeViewH;
-	compositeView.x = compositeViewBack.x + ((compositeViewBack.w - compositeView.w) / 2);
-	compositeView.y = compositeViewBack.y + ((compositeViewBack.h - compositeView.h) / 2);
+	Global_compositeView.w = compositeViewW;
+	Global_compositeView.h = compositeViewH;
+	Global_compositeView.x = Global_compositeViewBack.x + ((Global_compositeViewBack.w - Global_compositeView.w) / 2);
+	Global_compositeView.y = Global_compositeViewBack.y + ((Global_compositeViewBack.h - Global_compositeView.h) / 2);
 	//buildBorder(&compositeBorder, &compositeViewBack, BORDER_SIDE_OUTSIDE);
 
 	// Put the file browser view in the bottom right portion of the screen
-	browserView.x = bufferSpace;
-	browserView.y = (windowHeight / 2) + bufferSpace;
-	browserView.w = (windowWidth / 6) - (bufferSpace * 2);
-	browserView.h = (windowHeight / 2) - (bufferSpace * 2);
+	Global_browserView.x = bufferSpace;
+	Global_browserView.y = (windowHeight / 2) + bufferSpace;
+	Global_browserView.w = (windowWidth / 6) - (bufferSpace * 2);
+	Global_browserView.h = (windowHeight / 2) - (bufferSpace * 2);
 	//buildBorder(&browserBorder, &browserView, BORDER_SIDE_INSIDE);
 
 	// Put the timeline clip view in the center bottom portion of the screen between the file 
 	// browser view and the track effects view
-	timelineView.x = (windowWidth / 6) + bufferSpace;
-	timelineView.y = (windowHeight / 2) + bufferSpace;
-	timelineView.w = ((windowWidth / 6) * 4) - (bufferSpace * 2);
-	timelineView.h = (windowHeight / 2) - (bufferSpace * 2);
+	Global_timelineView.x = (windowWidth / 6) + bufferSpace;
+	Global_timelineView.y = (windowHeight / 2) + bufferSpace;
+	Global_timelineView.w = ((windowWidth / 6) * 4) - (bufferSpace * 2);
+	Global_timelineView.h = (windowHeight / 2) - (bufferSpace * 2);
 	//buildBorder(&timelineBorder, &timelineView, BORDER_SIDE_INSIDE);
 
 	// Put the track effects view in the bottom portion of the screen to the left of the 
 	// timeline view
-	effectsView.x = ((windowWidth / 6) * 5) + bufferSpace;
-	effectsView.y = (windowHeight / 2) + bufferSpace;
-	effectsView.w = (windowWidth / 6) - (bufferSpace * 2);
-	effectsView.h = (windowHeight / 2) - (bufferSpace * 2);
+	Global_effectsView.x = ((windowWidth / 6) * 5) + bufferSpace;
+	Global_effectsView.y = (windowHeight / 2) + bufferSpace;
+	Global_effectsView.w = (windowWidth / 6) - (bufferSpace * 2);
+	Global_effectsView.h = (windowHeight / 2) - (bufferSpace * 2);
 	//buildBorder(&effectsBorder, &effectsView, BORDER_SIDE_INSIDE);
 }
 
@@ -692,15 +726,15 @@ void singleLayout()
 	int windowWidth, windowHeight, hwidth, hheight, backViewW, backViewH, 
 	compositeViewW, compositeViewH;
 
-	SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+	SDL_GetWindowSize(Global_Window, &windowWidth, &windowHeight);
 	hwidth = windowWidth / 2;
 	hheight = windowHeight / 2;
 
 	// Put the timeline clip view in the bottom half of the screen
-	timelineView.x = bufferSpace;
-	timelineView.y = (windowHeight / 2) + bufferSpace;
-	timelineView.w = (windowWidth) - (bufferSpace * 2);
-	timelineView.h = (windowHeight / 2) - (bufferSpace * 2);
+	Global_timelineView.x = bufferSpace;
+	Global_timelineView.y = (windowHeight / 2) + bufferSpace;
+	Global_timelineView.w = (windowWidth) - (bufferSpace * 2);
+	Global_timelineView.h = (windowHeight / 2) - (bufferSpace * 2);
 	//buildBorder(&timelineBorder, &timelineView, BORDER_SIDE_INSIDE);
 
 	// Find the nearest 16x9 (STC) resolution to fit the composite views into
@@ -714,10 +748,10 @@ void singleLayout()
 	}
 
 	// Fit the current view background into an output aspect ratio in the top middle
-	compositeViewBack.w = backViewW;
-	compositeViewBack.h = backViewH;
-	compositeViewBack.x = (windowWidth / 2) - (compositeViewBack.w / 2);
-	compositeViewBack.y = (windowHeight / 4) - (compositeViewBack.h / 2);
+	Global_compositeViewBack.w = backViewW;
+	Global_compositeViewBack.h = backViewH;
+	Global_compositeViewBack.x = (windowWidth / 2) - (Global_compositeViewBack.w / 2);
+	Global_compositeViewBack.y = (windowHeight / 4) - (Global_compositeViewBack.h / 2);
 
 	// (??? STC ???) <
   // If the clip is bigger than the back views then we just resize it to be the back view
@@ -728,7 +762,7 @@ void singleLayout()
 	{
 				// Find the nearest rectangle to fit the clip's aspect ratio into the view backgrounds
 		for(int w = 0, h = 0; 
-		    w <= compositeViewBack.w && h <= compositeViewBack.h; 
+		    w <= Global_compositeViewBack.w && h <= Global_compositeViewBack.h; 
 		    w += Global_VideoClip.aspectRatioW, h += Global_VideoClip.aspectRatioH)
 		{
 			compositeViewW = w;
@@ -744,25 +778,25 @@ void singleLayout()
 
 	// Put the composite clip view on the left hand side and center it in the composite 
 	// view background
-	compositeView.w = compositeViewW;
-	compositeView.h = compositeViewH;
-	compositeView.x = compositeViewBack.x + ((compositeViewBack.w - compositeView.w) / 2);
-	compositeView.y = compositeViewBack.y + ((compositeViewBack.h - compositeView.h) / 2);
-	copyRect(&Global_VideoClip.destRect, &compositeView);
+	Global_compositeView.w = compositeViewW;
+	Global_compositeView.h = compositeViewH;
+	Global_compositeView.x = Global_compositeViewBack.x + ((Global_compositeViewBack.w - Global_compositeView.w) / 2);
+	Global_compositeView.y = Global_compositeViewBack.y + ((Global_compositeViewBack.h - Global_compositeView.h) / 2);
+	copyRect(&Global_VideoClip.destRect, &Global_compositeView);
   //buildBorder(&compositeBorder, &compositeViewBack, BORDER_SIDE_OUTSIDE);
 
 	// Put the file browser view in the top right portion (1/6th) of the screen
-	browserView.x = bufferSpace;
-	browserView.y = bufferSpace;
-	browserView.w = compositeViewBack.x - (bufferSpace * 2);
-	browserView.h = (windowHeight / 2) - (bufferSpace * 2);
+	Global_browserView.x = bufferSpace;
+	Global_browserView.y = bufferSpace;
+	Global_browserView.w = Global_compositeViewBack.x - (bufferSpace * 2);
+	Global_browserView.h = (windowHeight / 2) - (bufferSpace * 2);
   //buildBorder(&browserBorder, &browserView, BORDER_SIDE_INSIDE);
 
 	// Put the track effects view in the top left portion (1/6th) of the screen
-	effectsView.x = compositeViewBack.x + compositeViewBack.w + bufferSpace;
-	effectsView.y = bufferSpace;
-	effectsView.w = windowWidth - effectsView.x - bufferSpace;
-	effectsView.h = (windowHeight / 2) - (bufferSpace * 2);
+	Global_effectsView.x = Global_compositeViewBack.x + Global_compositeViewBack.w + bufferSpace;
+	Global_effectsView.y = bufferSpace;
+	Global_effectsView.w = windowWidth - Global_effectsView.x - bufferSpace;
+	Global_effectsView.h = (windowHeight / 2) - (bufferSpace * 2);
 	//buildBorder(&effectsBorder, &effectsView, BORDER_SIDE_INSIDE);
 }
 
@@ -778,9 +812,14 @@ void resizeAllWindowElements()
 // that can be fit inside the backviews of the composite and/or current views.
 internal void HandleEvents(SDL_Event event, VideoClip *clip)
 {
+	SDL_PumpEvents();
+	SDL_GetMouseState(&Global_mousex, &Global_mousey);
 	if(SDL_PollEvent(&event))
 	{
 		if(event.type == SDL_QUIT) Global_Running = false;
+		if(event.type == SDL_MOUSEMOTION) SDL_GetMouseState(&Global_mousex, &Global_mousey);
+		if(event.type == SDL_MOUSEBUTTONDOWN) Global_mousedown = true;
+		if(event.type == SDL_MOUSEBUTTONUP) Global_mousedown = false;
 		if(event.type == SDL_KEYDOWN)
 		{
 			SDL_Keycode key = event.key.keysym.sym;
@@ -794,6 +833,12 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				{
 					if(!Global_Paused) Global_Paused = true;
 					else Global_Paused = false;
+				} break;
+				case SDLK_RIGHT:
+				{
+					if(!Global_Paused) Global_Paused = true;
+					decodeVideoFrame(clip);
+					updateVideoClipTexture(clip);
 				} break;
 				case SDLK_t:
 				{
@@ -925,14 +970,14 @@ int main(int argc, char **argv)
 	SDL_Init(SDL_INIT_VIDEO);
 	TTF_Init();
 
-	window = SDL_CreateWindow("Mouse", 
+	Global_Window = SDL_CreateWindow("Mouse", 
 	                          SDL_WINDOWPOS_CENTERED, 
 	                          SDL_WINDOWPOS_CENTERED, 
 	                          1920, 1080, 
 	                          SDL_WINDOW_OPENGL|SDL_WINDOW_RESIZABLE|SDL_WINDOW_MAXIMIZED);
 	int windowWidth, windowHeight;
 
-	renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+	Global_Renderer = SDL_CreateRenderer(Global_Window, -1, SDL_RENDERER_ACCELERATED);
 
 	SDL_Event event = {};
 
@@ -942,84 +987,113 @@ int main(int argc, char **argv)
 
 	// TODO: List of clips to pass around
 	initVideoClip(&Global_VideoClip, Anime404mp4, true);
-	printClipInfo(&Global_VideoClip);
+	printVideoClipInfo(&Global_VideoClip);
 
 	resizeAllWindowElements();
 
 	Global_Paused = true; // DEBUG
-	SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+	SDL_SetRenderDrawBlendMode(Global_Renderer, SDL_BLENDMODE_BLEND);
 
 	// TODO: Build a font map
-	TTF_Font *font = TTF_OpenFont("../res/fonts/Anaheim-Regular.ttf", 72);
+	SDL_Surface *fontSurfaces[94];
+	SDL_Texture *fontTextures[94];
+	TTF_Font *fontAnaheimRegular = TTF_OpenFont("../res/fonts/Anaheim-Regular.ttf", 16);
 	int fontW, fontH;
-	const char *testText = "Hello world!";
-	TTF_SizeText(font, testText, &fontW, &fontH);
-	SDL_Color color = { 0, 0, 0};
-	SDL_Surface *textSurface = TTF_RenderText_Blended(font, testText, color);
-	SDL_Texture *textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
+	SDL_Color color = { 0, 0, 0 }; // SDL_color black
+	for(int currentC = 32, currentT = 0; currentC < 126; ++currentC, ++currentT)
+	{
+		char c = currentC;
+		fontSurfaces[currentT] = TTF_RenderGlyph_Blended(fontAnaheimRegular, c, color);
+		fontTextures[currentT] = SDL_CreateTextureFromSurface(Global_Renderer, fontSurfaces[currentT]);
+	}
+	// TTF_SizeText(font, testText, &fontW, &fontH);
+	SDL_Surface *textSurface = TTF_RenderText_Blended(fontAnaheimRegular, "Hello world", color);
+	SDL_Texture *textTexture = SDL_CreateTextureFromSurface(Global_Renderer, textSurface);
 	SDL_Rect textRect;
-	textRect.x = 10;
+	textRect.x = 15;
 	textRect.y = 10;
 	textRect.w = textSurface->w;
 	textRect.h = textSurface->h;
 
 	SDL_FreeSurface(textSurface);
 
+	setClipPosition(Global_Window, &Global_VideoClip, 30, 100);
+
 	while(Global_Running)
 	{
 		HandleEvents(event, &Global_VideoClip);
-		SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+		SDL_GetWindowSize(Global_Window, &windowWidth, &windowHeight);
+
+		if(Global_mousedown)
+		{
+			if(Global_Show_Transform_Tool && 
+			   isInsideRect(Global_VideoClip.destRect, Global_mousex, Global_mousey))
+			{
+				setClipPosition(Global_Window,
+				                &Global_VideoClip, 
+				                Global_mousex - Global_VideoClip.destRect.x, 
+				                Global_mousey - Global_VideoClip.destRect.y);
+			}
+		}
+
 		if(!Global_Paused)
 		{
-			playVideoClip(&Global_VideoClip);
+			decodeVideoFrame(&Global_VideoClip);
+			updateVideoClipTexture(&Global_VideoClip);
 		}
 
 		//printf("current frame: %d\n", Global_VideoClip.currentFrame);
 
-		SDL_SetRenderDrawColor(renderer, 
+		SDL_SetRenderDrawColor(Global_Renderer, 
 		                       tcBackground.r, 
 		                       tcBackground.g, 
 		                       tcBackground.b, 
 		                       tcBackground.a);
-		SDL_RenderClear(renderer);
+		SDL_RenderClear(Global_Renderer);
 
-		setRenderColor(renderer, tcBlack);
-		if(Global_Layout == LAYOUT_DUAL) SDL_RenderFillRect(renderer, &currentViewBack);
-		SDL_RenderFillRect(renderer, &compositeViewBack);
+		setRenderColor(Global_Renderer, tcBlack);
+		if(Global_Layout == LAYOUT_DUAL) SDL_RenderFillRect(Global_Renderer, &Global_currentViewBack);
+		SDL_RenderFillRect(Global_Renderer, &Global_compositeViewBack);
 
-		setRenderColor(renderer, tcRed);
-		if(Global_Layout == LAYOUT_DUAL) SDL_RenderFillRect(renderer, &currentView);
-		setRenderColor(renderer, tcBlue);
-		SDL_RenderFillRect(renderer, &compositeView);
+		setRenderColor(Global_Renderer, tcRed);
+		if(Global_Layout == LAYOUT_DUAL) SDL_RenderFillRect(Global_Renderer, &Global_currentView);
+		setRenderColor(Global_Renderer, tcBlue);
+		SDL_RenderFillRect(Global_Renderer, &Global_compositeView);
 
 		// TODO: Render copy list of videos....
-		if(Global_Layout == LAYOUT_DUAL) SDL_RenderCopy(renderer, 
-		                                                Global_VideoClip.texture, 
-		                                                &Global_VideoClip.srcRect, 
-		                                                &currentView);
-		SDL_RenderCopy(renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &compositeView);
+		if(Global_Layout == LAYOUT_DUAL)
+		{
+			SDL_RenderSetClipRect(Global_Renderer, &Global_currentView);
+			SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &Global_currentView);
+		}
+		SDL_RenderSetClipRect(Global_Renderer, &Global_compositeView);
+		SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &Global_compositeView);
 
-		setRenderColor(renderer, tcView);
-		SDL_RenderFillRect(renderer, &browserView);
-		SDL_RenderFillRect(renderer, &timelineView);
-		SDL_RenderFillRect(renderer, &effectsView);
+		SDL_RenderSetClipRect(Global_Renderer, NULL);
+
+		setRenderColor(Global_Renderer, tcView);
+		SDL_RenderFillRect(Global_Renderer, &Global_browserView);
+		SDL_RenderFillRect(Global_Renderer, &Global_timelineView);
+		SDL_RenderFillRect(Global_Renderer, &Global_effectsView);
 		
-		setRenderColor(renderer, tcBorder);
-		drawBorder(renderer, currentBorder);
-		drawBorder(renderer, compositeBorder);
-		drawBorder(renderer, browserBorder);
-		drawBorder(renderer, timelineBorder);
-		drawBorder(renderer, effectsBorder);
+		setRenderColor(Global_Renderer, tcBorder);
+		drawBorder(Global_Renderer, currentBorder);
+		drawBorder(Global_Renderer, compositeBorder);
+		drawBorder(Global_Renderer, browserBorder);
+		drawBorder(Global_Renderer, timelineBorder);
+		drawBorder(Global_Renderer, effectsBorder);
 
 		if(Global_Show_Transform_Tool)
 		{
-			drawClipTransformControls(renderer, &Global_VideoClip);
+			drawClipTransformControls(Global_Renderer, &Global_VideoClip);
 		}
 
-		SDL_RenderCopy(renderer, textTexture, NULL, &textRect);
+		SDL_RenderCopy(Global_Renderer, textTexture, NULL, &textRect);
 
-		SDL_RenderPresent(renderer);
+		SDL_RenderPresent(Global_Renderer);
 	}
+
+	TTF_CloseFont(fontAnaheimRegular);
 
 	SDL_Quit();
 	TTF_Quit();
