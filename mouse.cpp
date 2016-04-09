@@ -61,6 +61,8 @@ struct VideoClip
 	const char         *filename;
 	float               framerate;
 	float               avgFramerate;
+	float               msperframe;
+	int                 iframerate;
 	int                 aspectRatioW;
 	int                 aspectRatioH;
 	float               aspectRatioF;
@@ -95,21 +97,19 @@ enum WindowLayout
 
 global VideoClip Global_VideoClip = {};
 
-global const char *Anime404mp4 = "../res/Anime404.mp4";
-global const char *Anime404webm= "../res/Anime404.webm";
-global const char *dance = "../res/dance.mp4";
-global const char *froggy = "../res/froggy.gif";
-global const char *groggy = "../res/groggy.gif";
-global const char *h2bmkv = "../res/h2b.mkv"; // FIXME: Does not decode correctly
-global const char *h2bmp4 = "../res/h2b.mp4";
-global const char *kiloshelos = "../res/kiloshelos.mp4";
-global const char *nggyu = "../res/nggyu.mp4";
-global const char *pepsimanmvk = "../res/PEPSI-MAN.mkv";
-global const char *pepsimanmp4 = "../res/PEPSI-MAN.mp4";
-global const char *ruskie = "../res/ruskie.webm";
-global const char *trump = "../res/trump.webm";
-global const char *vapor = "../res/vapor.webm";
-global const char *watamote = "../res/watamote.webm";
+global const char *Anime404mp4 = "../res/video/Anime404.mp4";
+global const char *Anime404webm= "../res/video/Anime404.webm";
+global const char *dance =       "../res/video/dance.mp4";
+global const char *froggy =      "../res/video/froggy.gif";
+global const char *groggy =      "../res/video/groggy.gif";
+global const char *h2bmkv =      "../res/video/h2b.mkv"; // FIXME: Does not decode correctly
+global const char *h2bmp4 =      "../res/video/h2b.mp4";
+global const char *kiloshelos =  "../res/video/kiloshelos.mp4";
+global const char *nggyu =       "../res/video/nggyu.mp4";
+global const char *ruskie =      "../res/audio/ruskie.webm";
+global const char *trump =       "../res/video/trump.webm";
+global const char *vapor =       "../res/video/vapor.webm";
+global const char *watamote =    "../res/video/watamote.webm";
 
 global WindowLayout Global_Layout = LAYOUT_SINGLE;
 
@@ -173,17 +173,14 @@ void updateVideoClipTexture(VideoClip *clip)
 	clip->currentFrame = clip->frame->coded_picture_number;
 }
 
-void loop()
+void setVideoClipToBeginning(VideoClip *clip)
 {
-	/*if(clip->loop)
-	{
-		av_seek_frame(clip->formatCtx, clip->streamIndex, 0, AVSEEK_FLAG_FRAME);
-		printf("Looped clip: %s\n", clip->filename);
-	}*/
+	av_seek_frame(clip->formatCtx, clip->streamIndex, 0, AVSEEK_FLAG_FRAME);
+	// printf("Looped clip: %s\n", clip->filename); // DEBUG
 }
 
 // Return 0 for sucessful frame, 1 for end of file or error
-int decodeVideoFrame(VideoClip *clip)
+int decodeNextVideoFrame(VideoClip *clip)
 {
 	int frameFinished;
 	bool readFullFrame = false;
@@ -202,7 +199,7 @@ int decodeVideoFrame(VideoClip *clip)
 		}
 		else
 		{
-			return 1;
+			if(clip->loop) setVideoClipToBeginning(clip);
 		}
 	} while(!readFullFrame);
 
@@ -210,14 +207,14 @@ int decodeVideoFrame(VideoClip *clip)
 }
 
 // Print the video clip animation
-void printVideoClipInfo(VideoClip *clip)
+void printVideoClipInfo(VideoClip clip)
 {
-	printf("FILENAME: %s\n", clip->filename);
+	printf("FILENAME: %s\n", clip.filename);
 	printf("Duration: ");
-	if (clip->formatCtx->duration != AV_NOPTS_VALUE)
+	if (clip.formatCtx->duration != AV_NOPTS_VALUE)
 	{
-		int64 duration = clip->formatCtx->duration + 
-		(clip->formatCtx->duration <= INT64_MAX - 5000 ? 5000 : 0);
+		int64 duration = clip.formatCtx->duration + 
+		(clip.formatCtx->duration <= INT64_MAX - 5000 ? 5000 : 0);
 		int secs = duration / AV_TIME_BASE;
 		int us = duration % AV_TIME_BASE;
 		int mins = secs / 60;
@@ -226,24 +223,26 @@ void printVideoClipInfo(VideoClip *clip)
 		mins %= 60;
 		printf("%02d:%02d:%02d.%02d\n", hours, mins, secs, (100 * us) / AV_TIME_BASE);
 	}
-	if (clip->formatCtx->start_time != AV_NOPTS_VALUE)
+	if (clip.formatCtx->start_time != AV_NOPTS_VALUE)
 	{
 		int secs, us;
 		printf("Start time: ");
-		secs = clip->formatCtx->start_time / AV_TIME_BASE;
-		us   = llabs(clip->formatCtx->start_time % AV_TIME_BASE);
+		secs = clip.formatCtx->start_time / AV_TIME_BASE;
+		us   = llabs(clip.formatCtx->start_time % AV_TIME_BASE);
 		printf("%d.%02d\n", secs, (int) av_rescale(us, 1000000, AV_TIME_BASE));
 	}
 	printf("Video bitrate: ");
-	if (clip->formatCtx->bit_rate) printf("%d kb/s\n", (int64_t)clip->formatCtx->bit_rate / 1000);
+	if (clip.formatCtx->bit_rate) printf("%d kb/s\n", (int64_t)clip.formatCtx->bit_rate / 1000);
 	else printf("N/A\n");
-	printf("Width/Height: %dx%d\n", clip->width, clip->height);
-	printf("Real based framerate: %.2ffps\n", clip->framerate);
-	printf("Average framerate: %.2fps\n", clip->avgFramerate);
-	printf("Aspect Ratio: (%f), [%d:%d]\n", clip->aspectRatioF, 
-	       clip->aspectRatioW, clip->aspectRatioH);
+	printf("Width/Height: %dx%d\n", clip.width, clip.height);
+	printf("Real based framerate: %.2ffps\n", clip.framerate);
+	printf("Real based framerate int: %d\n", clip.iframerate);
+	printf("Milliseconds per frame: %.4f\n", clip.msperframe);
+	printf("Average framerate: %.2fps\n", clip.avgFramerate);
+	printf("Aspect Ratio: (%f), [%d:%d]\n", clip.aspectRatioF, 
+	       clip.aspectRatioW, clip.aspectRatioH);
 	printf("Number of frames: ");
-	if(clip->frameCount) printf("%d\n", clip->frameCount);
+	if(clip.frameCount) printf("%d\n", clip.frameCount);
 	else printf("unknown\n");
 	printf("\n");
 }
@@ -261,7 +260,7 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 
 	avformat_find_stream_info(clip->formatCtx, NULL);
 
-	av_dump_format(clip->formatCtx, 0, file, 0); // DEBUG
+	// av_dump_format(clip->formatCtx, 0, file, 0); // DEBUG
 
 	clip->streamIndex = -1;
 
@@ -341,6 +340,8 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 	clip->framerate = (float)fr.num / (float)fr.den;
 	AVRational afr = clip->stream->avg_frame_rate;
 	clip->avgFramerate = (float)afr.num / (float)afr.den;
+	clip->msperframe = (1/clip->framerate) * 1000;
+	clip->iframerate = clip->framerate * 1000;
 	
 	// Use av_reduce() to reduce a fraction to get the width and height of the clip's aspect ratio
 	av_reduce(&clip->aspectRatioW, &clip->aspectRatioH,
@@ -357,40 +358,9 @@ void initVideoClip(VideoClip *clip, const char *file, bool loop)
 
 	avcodec_close(codecCtxOrig);
 	// Decode the first video frame
-	int frameFinished;
-	bool gotFirstVideoFrame = false;
-	while(!gotFirstVideoFrame)
-	{
-		if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
-		{
-			if(clip->packet.stream_index == clip->streamIndex)
-			{
-				do
-				{
-					avcodec_decode_video2(clip->codecCtx, clip->frame, &frameFinished, &clip->packet);
-				} while(!frameFinished);
+	decodeNextVideoFrame(clip);
+	updateVideoClipTexture(clip);
 
-				AVPicture pict;
-				pict.data[0] = clip->yPlane;
-				pict.data[1] = clip->uPlane;
-				pict.data[2] = clip->vPlane;
-				pict.linesize[0] = clip->codecCtx->width;
-				pict.linesize[1] = clip->uvPitch;
-				pict.linesize[2] = clip->uvPitch;
-
-				sws_scale(clip->swsCtx, (uint8 const * const *)clip->frame->data, clip->frame->linesize, 
-				          0, clip->codecCtx->height, pict.data, pict.linesize);
-
-				SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
-				                     clip->codecCtx->width, clip->uPlane,
-				                     clip->uvPitch, clip->vPlane, clip->uvPitch);
-
-				clip->currentFrame = clip->frame->coded_picture_number;
-
-				gotFirstVideoFrame = true;
-			}
-		}
-	}
 	av_free_packet(&clip->packet);
 }
 
@@ -642,7 +612,7 @@ void dualLayout()
 	Global_compositeViewBack.x = (windowWidth / 2) + bufferSpace + 
 	(((hwidth - (bufferSpace * 2)) - Global_compositeViewBack.w) / 2);
 	Global_compositeViewBack.y = bufferSpace + (((hheight - (bufferSpace * 2)) - 
-	                                      Global_compositeViewBack.h) / 2);
+	                                             Global_compositeViewBack.h) / 2);
 
   // (??? STC ???) <
 	// If the clip is bigger than the back views then we just resize it to be the back view
@@ -837,7 +807,7 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				case SDLK_RIGHT:
 				{
 					if(!Global_Paused) Global_Paused = true;
-					decodeVideoFrame(clip);
+					decodeNextVideoFrame(clip);
 					updateVideoClipTexture(clip);
 				} break;
 				case SDLK_t:
@@ -847,81 +817,92 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				} break;
 				case SDLK_1:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, Anime404mp4, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_2:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, h2bmp4, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_3:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, kiloshelos, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_4:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, dance, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_5:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, trump, true);
+					printVideoClipInfo(Global_VideoClip);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_6:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, nggyu, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_7:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, froggy, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_8:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, groggy, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_9:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, ruskie, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
 				case SDLK_0:
 				{
-					freeVideoClipFull(&Global_VideoClip);
+					freeVideoClip(&Global_VideoClip);
 					Global_VideoClip = {};
 					initVideoClip(&Global_VideoClip, watamote, true);
+					printVideoClipInfo(Global_VideoClip);
 					resizeAllWindowElements();
 
 				} break;
@@ -971,10 +952,10 @@ int main(int argc, char **argv)
 	TTF_Init();
 
 	Global_Window = SDL_CreateWindow("Mouse", 
-	                          SDL_WINDOWPOS_CENTERED, 
-	                          SDL_WINDOWPOS_CENTERED, 
-	                          1920, 1080, 
-	                          SDL_WINDOW_OPENGL|SDL_WINDOW_RESIZABLE|SDL_WINDOW_MAXIMIZED);
+	                                 SDL_WINDOWPOS_CENTERED, 
+	                                 SDL_WINDOWPOS_CENTERED, 
+	                                 1024, 576, 
+	                                 SDL_WINDOW_OPENGL|SDL_WINDOW_RESIZABLE);
 	int windowWidth, windowHeight;
 
 	Global_Renderer = SDL_CreateRenderer(Global_Window, -1, SDL_RENDERER_ACCELERATED);
@@ -987,7 +968,7 @@ int main(int argc, char **argv)
 
 	// TODO: List of clips to pass around
 	initVideoClip(&Global_VideoClip, Anime404mp4, true);
-	printVideoClipInfo(&Global_VideoClip);
+	printVideoClipInfo(Global_VideoClip);
 
 	resizeAllWindowElements();
 
@@ -1019,28 +1000,13 @@ int main(int argc, char **argv)
 
 	setClipPosition(Global_Window, &Global_VideoClip, 30, 100);
 
+	int startTicks = SDL_GetTicks();
+	float ticksElapsed = 0.0f;
+
 	while(Global_Running)
 	{
 		HandleEvents(event, &Global_VideoClip);
 		SDL_GetWindowSize(Global_Window, &windowWidth, &windowHeight);
-
-		if(Global_mousedown)
-		{
-			if(Global_Show_Transform_Tool && 
-			   isInsideRect(Global_VideoClip.destRect, Global_mousex, Global_mousey))
-			{
-				setClipPosition(Global_Window,
-				                &Global_VideoClip, 
-				                Global_mousex - Global_VideoClip.destRect.x, 
-				                Global_mousey - Global_VideoClip.destRect.y);
-			}
-		}
-
-		if(!Global_Paused)
-		{
-			decodeVideoFrame(&Global_VideoClip);
-			updateVideoClipTexture(&Global_VideoClip);
-		}
 
 		//printf("current frame: %d\n", Global_VideoClip.currentFrame);
 
@@ -1060,17 +1026,6 @@ int main(int argc, char **argv)
 		setRenderColor(Global_Renderer, tcBlue);
 		SDL_RenderFillRect(Global_Renderer, &Global_compositeView);
 
-		// TODO: Render copy list of videos....
-		if(Global_Layout == LAYOUT_DUAL)
-		{
-			SDL_RenderSetClipRect(Global_Renderer, &Global_currentView);
-			SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &Global_currentView);
-		}
-		SDL_RenderSetClipRect(Global_Renderer, &Global_compositeView);
-		SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &Global_compositeView);
-
-		SDL_RenderSetClipRect(Global_Renderer, NULL);
-
 		setRenderColor(Global_Renderer, tcView);
 		SDL_RenderFillRect(Global_Renderer, &Global_browserView);
 		SDL_RenderFillRect(Global_Renderer, &Global_timelineView);
@@ -1083,12 +1038,36 @@ int main(int argc, char **argv)
 		drawBorder(Global_Renderer, timelineBorder);
 		drawBorder(Global_Renderer, effectsBorder);
 
+		SDL_RenderCopy(Global_Renderer, textTexture, NULL, &textRect);
+
+		if(!Global_Paused)
+		{
+			int endTicks = SDL_GetTicks();
+			ticksElapsed += (float)endTicks - (float)startTicks;
+			if(ticksElapsed >= Global_VideoClip.msperframe)
+			{
+				decodeNextVideoFrame(&Global_VideoClip);
+				updateVideoClipTexture(&Global_VideoClip);
+				ticksElapsed = 0;
+			}
+		}
+		startTicks = SDL_GetTicks();
+
+		// TODO: Render copy list of videos....
+		if(Global_Layout == LAYOUT_DUAL)
+		{
+			SDL_RenderSetClipRect(Global_Renderer, &Global_currentView);
+			SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &Global_currentView);
+		}
+		SDL_RenderSetClipRect(Global_Renderer, &Global_compositeView);
+		SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, &Global_compositeView);
+
+		SDL_RenderSetClipRect(Global_Renderer, NULL);
+
 		if(Global_Show_Transform_Tool)
 		{
 			drawClipTransformControls(Global_Renderer, &Global_VideoClip);
 		}
-
-		SDL_RenderCopy(Global_Renderer, textTexture, NULL, &textRect);
 
 		SDL_RenderPresent(Global_Renderer);
 	}
