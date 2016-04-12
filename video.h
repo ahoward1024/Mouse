@@ -26,7 +26,7 @@ struct VideoClip
 	float               framerate;
 	float               avgFramerate;
 	float               msperframe;
-	int                 iframerate;
+	int                 bitrate;
 	int                 aspectRatioW;
 	int                 aspectRatioH;
 	float               aspectRatioF;
@@ -41,6 +41,7 @@ struct VideoClip
 // as SDL still needs it for video resizing.
 void freeVideoClip(VideoClip *clip)
 {
+	printf("Freeing clip: %s\n\n", clip->filename); // DEBUG
 	av_frame_free(&clip->frame);
 	avcodec_close(clip->codecCtx);
 	avformat_close_input(&clip->formatCtx);
@@ -87,8 +88,7 @@ void setVideoClipToBeginning(VideoClip *clip)
 // Return 0 for sucessful frame, 1 for end of file or error
 int decodeNextVideoFrame(VideoClip *clip)
 {
-	int frameFinished;
-	bool readFullFrame = false;
+	int frameFinished = 0;
 	do
 	{
 		if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
@@ -99,22 +99,30 @@ int decodeNextVideoFrame(VideoClip *clip)
 				{
 					avcodec_decode_video2(clip->codecCtx, clip->frame, &frameFinished, &clip->packet);
 				} while(!frameFinished);
-				readFullFrame = true;
 			}
 		}
 		else
 		{
-			if(clip->loop) setVideoClipToBeginning(clip);
+			if(clip->loop) setVideoClipToBeginning(clip); // TODO: Looping still does not work correctly
 		}
-	} while(!readFullFrame);
+	} while(!frameFinished);
+
+	av_free_packet(&clip->packet);
 
 	return 0;
+}
+
+void playVideoClip(VideoClip clip)
+{
+	decodeNextVideoFrame(&clip);
+	updateVideoClipTexture(&clip);
 }
 
 // Print the video clip animation
 void printVideoClipInfo(VideoClip clip)
 {
-	printf("FILENAME: %s\n", clip.filename);
+	printf("INIT VIDEO CLIP ================\n");
+	printf("Filename: %s\n", clip.filename);
 	printf("Duration: ");
 	if (clip.formatCtx->duration != AV_NOPTS_VALUE)
 	{
@@ -141,23 +149,24 @@ void printVideoClipInfo(VideoClip clip)
 	else printf("N/A\n");
 	printf("Width/Height: %dx%d\n", clip.width, clip.height);
 	printf("Real based framerate: %.2ffps\n", clip.framerate);
-	printf("Real based framerate int: %d\n", clip.iframerate);
 	printf("Milliseconds per frame: %.4f\n", clip.msperframe);
+	printf("Bitrate: %d\n", clip.bitrate);
 	printf("Average framerate: %.2fps\n", clip.avgFramerate);
 	printf("Aspect Ratio: (%f), [%d:%d]\n", clip.aspectRatioF, 
 	       clip.aspectRatioW, clip.aspectRatioH);
 	printf("Number of frames: ");
 	if(clip.frameCount) printf("%d\n", clip.frameCount);
 	else printf("unknown\n");
+	printf("Looped: %s\n", clip.loop ? "true" : "false");
 	printf("\n");
 }
 
-void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *file, bool loop)
+void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *filename, bool loop)
 {
 	clip->formatCtx = NULL;
-	if(avformat_open_input(&clip->formatCtx, file, NULL, NULL) != 0)
+	if(avformat_open_input(&clip->formatCtx, filename, NULL, NULL) != 0)
 	{
-		printf("Could not open file: %s.\n", file);
+		printf("Could not open file: %s.\n", filename);
 		exit(-1);
 	}
 
@@ -165,7 +174,7 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *file, bo
 
 	avformat_find_stream_info(clip->formatCtx, NULL);
 
-	// av_dump_format(clip->formatCtx, 0, file, 0); // DEBUG
+	// av_dump_format(clip->formatCtx, 0, filename, 0); // DEBUG
 
 	clip->streamIndex = -1;
 
@@ -178,10 +187,9 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *file, bo
 			break;
 		}
 	}
-
 	assert(clip->streamIndex != -1);
-	AVCodecContext *codecCtxOrig = 
-	clip->formatCtx->streams[clip->streamIndex]->codec;
+
+	AVCodecContext *codecCtxOrig = clip->formatCtx->streams[clip->streamIndex]->codec;
 	clip->codec = avcodec_find_decoder(codecCtxOrig->codec_id);
 	
 	clip->codecCtx	= avcodec_alloc_context3(clip->codec);
@@ -194,7 +202,7 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *file, bo
 
 	avcodec_open2(clip->codecCtx, clip->codec, NULL);
 
-	clip->frame = NULL;
+	clip->frame = NULL; // Yes, this is necessary... av_frame_alloc() will fail without it.
 	clip->frame = av_frame_alloc();
 
 	clip->swsCtx = sws_getContext(clip->codecCtx->width,
@@ -222,16 +230,6 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *file, bo
 	clip->srcRect.w = clip->codecCtx->width;
 	clip->srcRect.h = clip->codecCtx->height;
 
-#if 0
-	int windowWidth, windowHeight;
-	SDL_GetWindowSize(Global_Window, &windowWidth, &windowHeight);
-	SDL_Rect videoDestRect;
-	clip->destRect.x = 0;
-	clip->destRect.y = 0;
-	clip->destRect.w = clip->srcRect.w;
-	clip->destRect.h = clip->srcRect.h;
-#endif
-
 	if(!clip->texture) 
 	{
 		clip->texture = SDL_CreateTexture(renderer,
@@ -248,7 +246,7 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *file, bo
 	AVRational afr = clip->stream->avg_frame_rate;
 	clip->avgFramerate = (float)afr.num / (float)afr.den;
 	clip->msperframe = (1/clip->framerate) * 1000;
-	clip->iframerate = clip->framerate * 1000;
+	clip->bitrate = clip->stream->codec->bit_rate;
 	
 	// Use av_reduce() to reduce a fraction to get the width and height of the clip's aspect ratio
 	av_reduce(&clip->aspectRatioW, &clip->aspectRatioH,
@@ -267,8 +265,6 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *file, bo
 	// Decode the first video frame
 	decodeNextVideoFrame(clip);
 	updateVideoClipTexture(clip);
-
-	av_free_packet(&clip->packet);
 }
 
 void setVideoClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)

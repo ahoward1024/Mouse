@@ -20,8 +20,10 @@ struct Border
 	SDL_Rect bot;
 	SDL_Rect left;
 	SDL_Rect right;
-};      
+};
 
+global Border currentBorder, compositeBorder,
+timelineBorder, browserBorder, effectsBorder;
 
 enum BorderSide
 {
@@ -35,7 +37,7 @@ enum WindowLayout
 	LAYOUT_DUAL,
 };
 
-bool isInsideRect(SDL_Rect rect, int mx, int my)
+internal bool isInsideRect(SDL_Rect rect, int mx, int my)
 {
 	int x1, x2, y1, y2;
 	int A, B, C, D;
@@ -55,12 +57,12 @@ bool isInsideRect(SDL_Rect rect, int mx, int my)
 	return false;
 }
 
-void copyRect(SDL_Rect *dest, SDL_Rect *src)
+internal void copyRect(SDL_Rect *dest, SDL_Rect src)
 {
-	dest->x = src->x;
-	dest->y = src->y;
-	dest->w = src->w;
-	dest->h = src->h;
+	dest->x = src.x;
+	dest->y = src.y;
+	dest->w = src.w;
+	dest->h = src.h;
 }
 
 void setRenderColor(SDL_Renderer *renderer, tColor color, uint8 alpha)
@@ -175,7 +177,7 @@ void drawClipTransformControls(SDL_Renderer *renderer, VideoClip *clip)
 	}
 }
 
-void drawBorder(SDL_Renderer *renderer, Border b)
+internal void drawBorder(SDL_Renderer *renderer, Border b)
 {
 	SDL_RenderFillRect(renderer, &b.top);
 	SDL_RenderFillRect(renderer, &b.bot);
@@ -184,7 +186,7 @@ void drawBorder(SDL_Renderer *renderer, Border b)
 }
 
 // This creates a border who's top and bottom are designated on the specified border side
-void buildBorder(Border *b, SDL_Rect *r, BorderSide bs)
+internal void buildBorder(Border *b, SDL_Rect *r, BorderSide bs)
 {
 	int height = 20;
 	int width = 4;
@@ -236,7 +238,7 @@ void buildBorder(Border *b, SDL_Rect *r, BorderSide bs)
 }
 
 // TODO: Still a bit janky, including borders
-void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
+internal void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 {
 	const int bufferSpace = 5;
 
@@ -316,7 +318,7 @@ void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 		((views->currentViewBack.w - views->currentView.w) / 2);
 	views->currentView.y = views->currentViewBack.y + 
 		((views->currentViewBack.h - views->currentView.h) / 2);
-	copyRect(&clip.destRect, &views->currentView);
+	copyRect(&clip.destRect, views->currentView);
 	//buildBorder(&currentBorder, &currentViewBack, BORDER_SIDE_OUTSIDE);
 
 	// Put the composite clip view on the left hand side and center it in the composite 
@@ -353,7 +355,7 @@ void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 	//buildBorder(&effectsBorder, &effectsView, BORDER_SIDE_INSIDE);
 }
 
-void singleLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
+internal void singleLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 {
 	const int bufferSpace = 10;
 
@@ -418,7 +420,7 @@ void singleLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 		((views->compositeViewBack.w - views->compositeView.w) / 2);
 	views->compositeView.y = views->compositeViewBack.y + 
 		((views->compositeViewBack.h - views->compositeView.h) / 2);
-	copyRect(&clip.destRect, &views->compositeView);
+	copyRect(&clip.destRect, views->compositeView);
   //buildBorder(&compositeBorder, &compositeViewBack, BORDER_SIDE_OUTSIDE);
 
 	// Put the file browser view in the top right portion (1/6th) of the screen
