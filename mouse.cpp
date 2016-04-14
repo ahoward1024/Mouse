@@ -96,7 +96,7 @@ global AudioClip Global_AudioClip = {};
 global SDL_AudioDeviceID Global_AudioDeviceID = {};
 global SDL_AudioSpec Global_AudioSpec = {};
 
-void outputAudio(void *userdata, uint8 *audioStream, int length)
+void outputAudio(void *userdata, uint8 *audiostream, int nbytes)
 { 
 	
 }
@@ -238,11 +238,10 @@ void initAudioClip(AudioClip *clip, const char *filename, bool loop)
 	avcodec_close(codecCtxOrig);
 }
 
-// TODO: DO NOT resizeAllWinowElements() each time a clip is changed
-// The reason we do this is because when the clip is reinitialized, the rectangles for the
-// views are not updated to hold the original aspect ratio of the clip into a rectangle
-// that can be fit inside the backviews of the composite and/or current views.
-// We should, instead, only update the views for the clips themselves.
+// NOTE: As of this point, refreshing all window elements is actually fast enough when updating the
+// clips. This is not really a problem right now as the code to do this is really only for testing.
+// Remember, however, any time a new clip is loaded the rectangles for the composite view and
+// current views must be updated so it can resize the clip's aspect ratio correctly.
 internal void HandleEvents(SDL_Event event, VideoClip *clip)
 {
 	SDL_PumpEvents();
@@ -270,7 +269,13 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				case SDLK_RIGHT:
 				{
 					if(!Global_Paused) Global_Paused = true;
-					decodeNextVideoFrame(clip);
+					decodeVideoFrameNext(clip);
+					updateVideoClipTexture(clip);
+				} break;
+				case SDLK_LEFT:
+				{
+					if(!Global_Paused) Global_Paused = true;
+					decodeVideoFramePrev(clip);
 					updateVideoClipTexture(clip);
 				} break;
 				case SDLK_t:
@@ -419,11 +424,12 @@ int main(int argc, char **argv)
 
 	const char *fname;
 	if(argv[1]) fname = argv[1];
-	else fname = Anime404mp4; // DEBUG FILENAME
+	else fname = nggyu; // DEBUG FILENAME
 
 	// TODO: List of clips to pass around
 	initVideoClip(&Global_VideoClip, Global_Renderer, fname, true);
 	printVideoClipInfo(Global_VideoClip);
+	decodeAllFramesToBuffer(&Global_VideoClip);
 
 	resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
 
@@ -462,9 +468,19 @@ int main(int argc, char **argv)
 	int startTicks = SDL_GetTicks();
 	float ticksElapsed = 0.0f;
 
+	int index = 0;
 	while(Global_Running)
 	{
 		HandleEvents(event, &Global_VideoClip);
+
+		playFullVideoClip(&Global_VideoClip, index);
+		++index;
+
+		SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, 
+		               &Global_Views.currentView);
+
+		#if 0
+
 		SDL_GetWindowSize(Global_Window, &windowWidth, &windowHeight);
 
 		SDL_SetRenderDrawColor(Global_Renderer, 
@@ -502,7 +518,6 @@ int main(int argc, char **argv)
 		{
 			int endTicks = SDL_GetTicks();
 			ticksElapsed += (float)endTicks - (float)startTicks;
-			// TODO: Make the margin of error nicer (not just 5%?)
 			if(ticksElapsed >= (Global_VideoClip.msperframe - (Global_VideoClip.msperframe * 0.05f)))
 			{
 				playVideoClip(Global_VideoClip);
@@ -514,13 +529,14 @@ int main(int argc, char **argv)
 			SDL_PauseAudioDevice(Global_AudioDeviceID, true);
 		}
 		startTicks = SDL_GetTicks();
-		// TODO: Render copy list of videos....
 		if(Global_Layout == LAYOUT_DUAL)
 		{
 			SDL_RenderSetClipRect(Global_Renderer, &Global_Views.currentView);
 			SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, 
 			               &Global_Views.currentView);
 		}
+		// Always copy the video render textures to the composite view because it is the 
+		// main video view.
 		SDL_RenderSetClipRect(Global_Renderer, &Global_Views.compositeView);
 		SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, 
 		               &Global_Views.compositeView);
@@ -531,6 +547,7 @@ int main(int argc, char **argv)
 		{
 			drawClipTransformControls(Global_Renderer, &Global_VideoClip);
 		}
+		#endif
 		SDL_RenderPresent(Global_Renderer);
 	}
 

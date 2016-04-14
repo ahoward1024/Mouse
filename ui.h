@@ -237,7 +237,7 @@ internal void buildBorder(Border *b, SDL_Rect *r, BorderSide bs)
 	}
 }
 
-// TODO: Still a bit janky, including borders
+// TODO: Still a bit janky, including borders. Polish this.
 internal void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 {
 	const int bufferSpace = 5;

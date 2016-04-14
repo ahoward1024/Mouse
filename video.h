@@ -1,6 +1,8 @@
 #ifndef VIDEO_H
 #define VIDEO_H
 
+#define MAX_FRAME_BUFFER_SIZE 65536
+
 // Video only clips
 // NOTE:IMPORTANT: Video clips MUST be initalized to zero.
 struct VideoClip
@@ -35,6 +37,8 @@ struct VideoClip
 	int                 width;
 	int                 height;
 	bool								loop;
+	AVFrame           **frameBuffer;
+	int                 frameBufferIndex;
 };
 
 // This will free the clip for reinitalization, we do not free the texture
@@ -85,8 +89,53 @@ void setVideoClipToBeginning(VideoClip *clip)
 	// printf("Looped clip: %s\n", clip->filename); // DEBUG
 }
 
+void playFullVideoClip(VideoClip *clip, int index)
+{
+	// TODO IMPORTANT XXX: USE AVFrameBuffer!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	if(index < clip->frameBufferIndex)
+	{
+		//clip->frame = clip->frameBuffer[index];
+		memcpy(clip->frame, clip->frameBuffer[index], sizeof(AVFrame *));
+		updateVideoClipTexture(clip);
+	}
+}
+
+int decodeAllFramesToBuffer(VideoClip *clip)
+{
+	printf("Starting decode of all frames.\n");
+	int start = SDL_GetTicks();
+	bool done = false;
+	int frameFinished = 0;
+	do
+	{
+		if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
+		{
+			if(clip->packet.stream_index == clip->streamIndex)
+			{
+				do
+				{
+					avcodec_decode_video2(clip->codecCtx, clip->frame, &frameFinished, &clip->packet);
+				} while(!frameFinished);
+				clip->frameBuffer[clip->frameBufferIndex] = clip->frame;
+				clip->frameBufferIndex++;
+				assert(clip->frameBufferIndex < MAX_FRAME_BUFFER_SIZE);
+			}
+
+		}
+		else
+		{
+			done = true;
+		}
+	} while(!done);
+
+	int end = SDL_GetTicks();
+	printf("End decode all frames. Time elapsed: %dms\n", end - start);
+
+	return 0;
+}
+
 // Return 0 for sucessful frame, 1 for end of file or error
-int decodeNextVideoFrame(VideoClip *clip)
+int decodeVideoFrameNext(VideoClip *clip)
 {
 	int frameFinished = 0;
 	do
@@ -107,14 +156,34 @@ int decodeNextVideoFrame(VideoClip *clip)
 		}
 	} while(!frameFinished);
 
+	clip->currentFrame++;
+	if(clip->frameBufferIndex < MAX_FRAME_BUFFER_SIZE)
+	{
+		clip->frameBuffer[clip->frameBufferIndex] = clip->frame;
+		clip->frameBufferIndex++;
+	}
+	else
+	{
+		printf("Overran filling buffer. Resetting.\n");
+		clip->frameBufferIndex = 0;
+	}
+
 	av_free_packet(&clip->packet);
+
+	return 0;
+}
+
+int decodeVideoFramePrev(VideoClip *clip)
+{
+	clip->frame = clip->frameBuffer[--clip->frameBufferIndex];
+	updateVideoClipTexture(clip);
 
 	return 0;
 }
 
 void playVideoClip(VideoClip clip)
 {
-	decodeNextVideoFrame(&clip);
+	decodeVideoFrameNext(&clip);
 	updateVideoClipTexture(&clip);
 }
 
@@ -261,9 +330,14 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *filename
 
 	clip->frameCount = clip->stream->nb_frames;
 
+	clip->frameBuffer = (AVFrame **)calloc(MAX_FRAME_BUFFER_SIZE, sizeof(AVFrame *));
+	for(int i = 0; i < MAX_FRAME_BUFFER_SIZE; ++i)
+		clip->frameBuffer[i] = (AVFrame *)calloc(1, sizeof(AVFrame));
+	clip->frameBufferIndex = 0;
+
 	avcodec_close(codecCtxOrig);
 	// Decode the first video frame
-	decodeNextVideoFrame(clip);
+	decodeVideoFrameNext(clip);
 	updateVideoClipTexture(clip);
 }
 
