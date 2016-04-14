@@ -269,14 +269,14 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				case SDLK_RIGHT:
 				{
 					if(!Global_Paused) Global_Paused = true;
-					decodeVideoFrameNext(clip);
-					updateVideoClipTexture(clip);
+					//decodeVideoFrameNext(clip);
+					//updateVideoClipTexture(clip);
 				} break;
 				case SDLK_LEFT:
 				{
 					if(!Global_Paused) Global_Paused = true;
-					decodeVideoFramePrev(clip);
-					updateVideoClipTexture(clip);
+					//decodeVideoFramePrev(clip);
+					//updateVideoClipTexture(clip);
 				} break;
 				case SDLK_t:
 				{
@@ -429,7 +429,9 @@ int main(int argc, char **argv)
 	// TODO: List of clips to pass around
 	initVideoClip(&Global_VideoClip, Global_Renderer, fname, true);
 	printVideoClipInfo(Global_VideoClip);
-	decodeAllFramesToBuffer(&Global_VideoClip);
+	//decodeAllFramesToBuffer(&Global_VideoClip);
+	storeAllFramesInBuffer(&Global_VideoClip);
+	updateVideoClipTexture(&Global_VideoClip, Global_VideoClip.frameBuffer[0]);
 
 	resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
 
@@ -469,17 +471,10 @@ int main(int argc, char **argv)
 	float ticksElapsed = 0.0f;
 
 	int index = 0;
+
 	while(Global_Running)
 	{
 		HandleEvents(event, &Global_VideoClip);
-
-		playFullVideoClip(&Global_VideoClip, index);
-		++index;
-
-		SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, 
-		               &Global_Views.currentView);
-
-		#if 0
 
 		SDL_GetWindowSize(Global_Window, &windowWidth, &windowHeight);
 
@@ -520,7 +515,12 @@ int main(int argc, char **argv)
 			ticksElapsed += (float)endTicks - (float)startTicks;
 			if(ticksElapsed >= (Global_VideoClip.msperframe - (Global_VideoClip.msperframe * 0.05f)))
 			{
-				playVideoClip(Global_VideoClip);
+				// playVideoClip(Global_VideoClip);
+				if(index < Global_VideoClip.frameBufferIndex)
+				{
+					playFrameAtIndex(&Global_VideoClip, index);
+					index++;
+				}
 				ticksElapsed = 0;
 			}
 		}
@@ -547,7 +547,7 @@ int main(int argc, char **argv)
 		{
 			drawClipTransformControls(Global_Renderer, &Global_VideoClip);
 		}
-		#endif
+
 		SDL_RenderPresent(Global_Renderer);
 	}
 

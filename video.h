@@ -11,7 +11,6 @@ struct VideoClip
 	AVCodecContext     *codecCtx;
 	AVCodec            *codec;
 	AVStream           *stream;
-	AVFrame            *frame;
 	AVPacket            packet;
 	struct SwsContext  *swsCtx;
 	int                 streamIndex;
@@ -37,7 +36,7 @@ struct VideoClip
 	int                 width;
 	int                 height;
 	bool								loop;
-	AVFrame           **frameBuffer;
+	AVFrame            *frameBuffer[MAX_FRAME_BUFFER_SIZE];
 	int                 frameBufferIndex;
 };
 
@@ -46,7 +45,6 @@ struct VideoClip
 void freeVideoClip(VideoClip *clip)
 {
 	printf("Freeing clip: %s\n\n", clip->filename); // DEBUG
-	av_frame_free(&clip->frame);
 	avcodec_close(clip->codecCtx);
 	avformat_close_input(&clip->formatCtx);
 	free(clip->formatCtx);
@@ -62,6 +60,7 @@ void freeVideoClipFull(VideoClip *clip)
 	SDL_free(clip->texture);
 }
 
+#if 0
 void updateVideoClipTexture(VideoClip *clip)
 {
 	AVPicture pict;
@@ -80,8 +79,8 @@ void updateVideoClipTexture(VideoClip *clip)
 	                     clip->codecCtx->width, clip->uPlane,
 	                     clip->uvPitch, clip->vPlane, clip->uvPitch);
 
-	clip->currentFrame = clip->frame->coded_picture_number;
 }
+#endif
 
 void setVideoClipToBeginning(VideoClip *clip)
 {
@@ -89,51 +88,68 @@ void setVideoClipToBeginning(VideoClip *clip)
 	// printf("Looped clip: %s\n", clip->filename); // DEBUG
 }
 
-void playFullVideoClip(VideoClip *clip, int index)
+void updateVideoClipTexture(VideoClip *clip, AVFrame *frame)
 {
-	// TODO IMPORTANT XXX: USE AVFrameBuffer!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-	if(index < clip->frameBufferIndex)
-	{
-		//clip->frame = clip->frameBuffer[index];
-		memcpy(clip->frame, clip->frameBuffer[index], sizeof(AVFrame *));
-		updateVideoClipTexture(clip);
-	}
+	AVPicture pict;
+	pict.data[0] = clip->yPlane;
+	pict.data[1] = clip->uPlane;
+	pict.data[2] = clip->vPlane;
+	pict.linesize[0] = clip->codecCtx->width;
+	pict.linesize[1] = clip->uvPitch;
+	pict.linesize[2] = clip->uvPitch;
+
+	sws_scale(clip->swsCtx, (uint8 const * const *)frame->data, 
+	          frame->linesize, 
+	          0, clip->codecCtx->height, pict.data, pict.linesize);
+
+	SDL_UpdateYUVTexture(clip->texture, NULL, clip->yPlane, 
+	                     clip->codecCtx->width, clip->uPlane,
+	                     clip->uvPitch, clip->vPlane, clip->uvPitch);
 }
 
-int decodeAllFramesToBuffer(VideoClip *clip)
-{
-	printf("Starting decode of all frames.\n");
-	int start = SDL_GetTicks();
-	bool done = false;
-	int frameFinished = 0;
-	do
-	{
-		if(av_read_frame(clip->formatCtx, &clip->packet) >= 0)
-		{
-			if(clip->packet.stream_index == clip->streamIndex)
-			{
-				do
-				{
-					avcodec_decode_video2(clip->codecCtx, clip->frame, &frameFinished, &clip->packet);
-				} while(!frameFinished);
-				clip->frameBuffer[clip->frameBufferIndex] = clip->frame;
-				clip->frameBufferIndex++;
-				assert(clip->frameBufferIndex < MAX_FRAME_BUFFER_SIZE);
-			}
+int nframe = 0;
 
-		}
-		else
+void storeAllFramesInBuffer(VideoClip *clip)
+{
+	AVPacket packet;
+	av_init_packet(&packet);
+
+	int i = 0;
+
+	clip->frameBufferIndex = 0;
+
+	AVFrame *frame = av_frame_alloc();
+
+	int start = SDL_GetTicks();
+
+	while(av_read_frame(clip->formatCtx, &packet) >= 0)
+	{
+		int frameFinished = 0;
+		if(packet.stream_index == clip->streamIndex)
 		{
-			done = true;
+			avcodec_decode_video2(clip->codecCtx, frame, &frameFinished, &packet);
+			if(frameFinished)
+			{
+				clip->frameBuffer[clip->frameBufferIndex] = av_frame_clone(frame);
+				// if(clip->frameBuffer[clip->frameBufferIndex]) 
+							// printf("Clone sucessfull for frame: %d\n", nframe++); // DEBUG
+				// else printf("Clone failed for frame: %d\n", nframe++); // DEBUG
+				clip->frameBufferIndex++;
+			}
 		}
-	} while(!done);
+	}
 
 	int end = SDL_GetTicks();
-	printf("End decode all frames. Time elapsed: %dms\n", end - start);
 
-	return 0;
+	printf("Finished decoding and storing all frames in: %dms\n\n", end - start);
 }
 
+void playFrameAtIndex(VideoClip *clip, int index)
+{
+	updateVideoClipTexture(clip, clip->frameBuffer[index]);
+}
+
+#if 0
 // Return 0 for sucessful frame, 1 for end of file or error
 int decodeVideoFrameNext(VideoClip *clip)
 {
@@ -173,6 +189,7 @@ int decodeVideoFrameNext(VideoClip *clip)
 	return 0;
 }
 
+
 int decodeVideoFramePrev(VideoClip *clip)
 {
 	clip->frame = clip->frameBuffer[--clip->frameBufferIndex];
@@ -186,6 +203,7 @@ void playVideoClip(VideoClip clip)
 	decodeVideoFrameNext(&clip);
 	updateVideoClipTexture(&clip);
 }
+#endif
 
 // Print the video clip animation
 void printVideoClipInfo(VideoClip clip)
@@ -271,9 +289,6 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *filename
 
 	avcodec_open2(clip->codecCtx, clip->codec, NULL);
 
-	clip->frame = NULL; // Yes, this is necessary... av_frame_alloc() will fail without it.
-	clip->frame = av_frame_alloc();
-
 	clip->swsCtx = sws_getContext(clip->codecCtx->width,
 	                              clip->codecCtx->height,
 	                              clip->codecCtx->pix_fmt,
@@ -330,15 +345,17 @@ void initVideoClip(VideoClip *clip, SDL_Renderer *renderer, const char *filename
 
 	clip->frameCount = clip->stream->nb_frames;
 
-	clip->frameBuffer = (AVFrame **)calloc(MAX_FRAME_BUFFER_SIZE, sizeof(AVFrame *));
-	for(int i = 0; i < MAX_FRAME_BUFFER_SIZE; ++i)
-		clip->frameBuffer[i] = (AVFrame *)calloc(1, sizeof(AVFrame));
 	clip->frameBufferIndex = 0;
+
+	for(int i = 0; i < MAX_FRAME_BUFFER_SIZE; ++i)
+	{
+		clip->frameBuffer[i] = av_frame_alloc();
+	}
 
 	avcodec_close(codecCtxOrig);
 	// Decode the first video frame
-	decodeVideoFrameNext(clip);
-	updateVideoClipTexture(clip);
+	// decodeVideoFrameNext(clip);
+	// updateVideoClipTexture(clip);
 }
 
 void setVideoClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)
