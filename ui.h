@@ -445,4 +445,13 @@ void resizeAllWindowElements(SDL_Window *window, ViewRects *views, VideoClip cli
 	else if(layout == LAYOUT_DUAL) dualLayout(window, views, clip);
 }
 
+void setVideoClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)
+{
+	int width, height;
+	SDL_GetWindowSize(window, &width, &height);
+	if(x < 0 || y < 0 || x > width || y > height) return;
+	clip->destRect.x = x;
+	clip->destRect.y = y;
+}
+
 #endif

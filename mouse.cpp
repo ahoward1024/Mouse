@@ -426,12 +426,11 @@ int main(int argc, char **argv)
 	if(argv[1]) fname = argv[1];
 	else fname = nggyu; // DEBUG FILENAME
 
-	// TODO: List of clips to pass around
+	// TODO: Make a seperate structure for video clips. We want two structures, one that holds a frame
+	// buffer of a loaded video file, the other to be a clip that holds indicies of frames of that
+	// file to play on the timeline.
 	initVideoClip(&Global_VideoClip, Global_Renderer, fname, true);
 	printVideoClipInfo(Global_VideoClip);
-	//decodeAllFramesToBuffer(&Global_VideoClip);
-	storeAllFramesInBuffer(&Global_VideoClip);
-	updateVideoClipTexture(&Global_VideoClip, Global_VideoClip.frameBuffer[0]);
 
 	resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
 
