@@ -59,6 +59,7 @@ struct AVClip
 
 global ViewRects Global_Views = {};
 
+global VideoFile Global_VideoFile = {};
 global VideoClip Global_VideoClip = {};
 
 global const char *Anime404mp4 = "../res/video/Anime404.mp4";
@@ -285,84 +286,44 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				} break;
 				case SDLK_1:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, Anime404mp4, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 
 				} break;
 				case SDLK_2:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, h2bmp4, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_3:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, kiloshelos, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_4:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, dance, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_5:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, trump, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_6:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, nggyu, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_7:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, froggy, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_8:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, groggy, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_9:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, ruskie, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_0:
 				{
-					freeVideoClip(&Global_VideoClip);
-					Global_VideoClip = {};
-					initVideoClip(&Global_VideoClip, Global_Renderer, watamote, true);
-					printVideoClipInfo(Global_VideoClip);
-					resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
+
 				} break;
 				case SDLK_TAB:
 				{
@@ -429,14 +390,11 @@ int main(int argc, char **argv)
 	// TODO: Make a seperate structure for video clips. We want two structures, one that holds a frame
 	// buffer of a loaded video file, the other to be a clip that holds indicies of frames of that
 	// file to play on the timeline.
-	initVideoClip(&Global_VideoClip, Global_Renderer, fname, true);
-	printVideoClipInfo(Global_VideoClip);
-
+	loadVideoFile(&Global_VideoFile, fname);
+	printVideoFileInfo(Global_VideoFile);
+	createVideoClip(&Global_VideoClip, &Global_VideoFile, Global_Renderer);
 	resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
-
-	initAudioClip(&Global_AudioClip, fname, true);
-	printAudioClipInfo(Global_AudioClip);
-	SDL_PauseAudioDevice(Global_AudioDeviceID, false);
+	printVideoClipInfo(Global_VideoClip);
 
 	Global_Paused = false; // DEBUG
 	SDL_SetRenderDrawBlendMode(Global_Renderer, SDL_BLENDMODE_BLEND);
@@ -512,10 +470,11 @@ int main(int argc, char **argv)
 		{
 			int endTicks = SDL_GetTicks();
 			ticksElapsed += (float)endTicks - (float)startTicks;
-			if(ticksElapsed >= (Global_VideoClip.msperframe - (Global_VideoClip.msperframe * 0.05f)))
+			if(ticksElapsed >= 
+			   (Global_VideoClip.vfile->msperframe - (Global_VideoClip.vfile->msperframe * 0.05f)))
 			{
 				// playVideoClip(Global_VideoClip);
-				if(index < Global_VideoClip.frameBufferIndex)
+				if(index < Global_VideoClip.vfile->frameBufferSize)
 				{
 					playFrameAtIndex(&Global_VideoClip, index);
 					index++;
@@ -531,13 +490,13 @@ int main(int argc, char **argv)
 		if(Global_Layout == LAYOUT_DUAL)
 		{
 			SDL_RenderSetClipRect(Global_Renderer, &Global_Views.currentView);
-			SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, 
+			SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.viewRect, 
 			               &Global_Views.currentView);
 		}
 		// Always copy the video render textures to the composite view because it is the 
 		// main video view.
 		SDL_RenderSetClipRect(Global_Renderer, &Global_Views.compositeView);
-		SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.srcRect, 
+		SDL_RenderCopy(Global_Renderer, Global_VideoClip.texture, &Global_VideoClip.viewRect, 
 		               &Global_Views.compositeView);
 
 		SDL_RenderSetClipRect(Global_Renderer, NULL);
@@ -557,7 +516,8 @@ int main(int argc, char **argv)
 	SDL_CloseAudio();
 	SDL_Quit();
 
-	freeVideoClipFull(&Global_VideoClip);
+	freeVideoClip(&Global_VideoClip);
+	freeVideoFile(&Global_VideoFile);
 	
 	printf("\nGoodbye.\n");
 

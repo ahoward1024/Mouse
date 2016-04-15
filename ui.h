@@ -79,7 +79,7 @@ void setRenderColor(SDL_Renderer *renderer, tColor color)
 void drawClipTransformControls(SDL_Renderer *renderer, VideoClip *clip)
 {
 
-	SDL_Rect r = clip->destRect;
+	SDL_Rect r = clip->viewRect;
 
 	SDL_Rect i;
 	SDL_Rect b;
@@ -238,6 +238,8 @@ internal void buildBorder(Border *b, SDL_Rect *r, BorderSide bs)
 }
 
 // TODO: Still a bit janky, including borders. Polish this.
+// TODO FIXME: The current view SHOULD NOT USE THE CLIP'S VIEW RECTANGLE!!!
+// The clip's view rectangle should only be referenced by the composite view!!!
 internal void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 {
 	const int bufferSpace = 5;
@@ -281,12 +283,12 @@ internal void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 	// and "fit it to frame". Otherwise we keep the Global_VideoClip at it's original size.
 	// NOTE: We may want to test this, perhaps clip that are bigger than the size of the wanted
 	// composite should be clipped outside of the composite... 
-	if(clip.width > backViewW || clip.height > backViewH)
+	if(clip.vfile->width > backViewW || clip.vfile->height > backViewH)
 	{
 		// Find the nearest rectangle to fit the clip's aspect ratio into the view backgrounds
 		for(int w = 0, h = 0; 
 		    w <= views->currentViewBack.w && h <= views->currentViewBack.h; 
-		    w += clip.aspectRatioW, h += clip.aspectRatioH)
+		    w += clip.vfile->aspectRatioW, h += clip.vfile->aspectRatioH)
 		{
 			currentViewW = w;
 			currentViewH = h;
@@ -295,7 +297,7 @@ internal void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 		// Find the nearest rectangle to fit the clip's aspect ratio into the view backgrounds
 		for(int w = 0, h = 0; 
 		    w <= views->compositeViewBack.w && h <= views->compositeViewBack.h; 
-		    w += clip.aspectRatioW, h += clip.aspectRatioH)
+		    w += clip.vfile->aspectRatioW, h += clip.vfile->aspectRatioH)
 		{
 			compositeViewW = w;
 			compositeViewH = h;
@@ -303,11 +305,11 @@ internal void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 	}
 	else
 	{
-		currentViewW = clip.codecCtx->width;
-		currentViewH = clip.codecCtx->height;
+		currentViewW = clip.vfile->codecCtx->width;
+		currentViewH = clip.vfile->codecCtx->height;
 
-		compositeViewW = clip.codecCtx->width;
-		compositeViewH = clip.codecCtx->height;
+		compositeViewW = clip.vfile->codecCtx->width;
+		compositeViewH = clip.vfile->codecCtx->height;
 	}
 	// (??? STC ???)) >
 
@@ -318,7 +320,7 @@ internal void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 		((views->currentViewBack.w - views->currentView.w) / 2);
 	views->currentView.y = views->currentViewBack.y + 
 		((views->currentViewBack.h - views->currentView.h) / 2);
-	copyRect(&clip.destRect, views->currentView);
+	copyRect(&clip.viewRect, views->currentView);
 	//buildBorder(&currentBorder, &currentViewBack, BORDER_SIDE_OUTSIDE);
 
 	// Put the composite clip view on the left hand side and center it in the composite 
@@ -394,12 +396,12 @@ internal void singleLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
   // and "fit it to frame". Otherwise we keep the Global_VideoClip at it's original size.
   // NOTE: We may want to test this, perhaps clips that are bigger than the size of the wanted
   // composite should be clipped outside of the composite... 
-	if(clip.width > backViewW || clip.height > backViewH)
+	if(clip.vfile->width > backViewW || clip.vfile->height > backViewH)
 	{
 				// Find the nearest rectangle to fit the clip's aspect ratio into the view backgrounds
 		for(int w = 0, h = 0; 
 		    w <= views->compositeViewBack.w && h <= views->compositeViewBack.h; 
-		    w += clip.aspectRatioW, h += clip.aspectRatioH)
+		    w += clip.vfile->aspectRatioW, h += clip.vfile->aspectRatioH)
 		{
 			compositeViewW = w;
 			compositeViewH = h;
@@ -407,8 +409,8 @@ internal void singleLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 	}
 	else
 	{
-		compositeViewW = clip.codecCtx->width;
-		compositeViewH = clip.codecCtx->height;
+		compositeViewW = clip.vfile->codecCtx->width;
+		compositeViewH = clip.vfile->codecCtx->height;
 	}
 	// (??? STC ???)) >
 
@@ -420,7 +422,7 @@ internal void singleLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 		((views->compositeViewBack.w - views->compositeView.w) / 2);
 	views->compositeView.y = views->compositeViewBack.y + 
 		((views->compositeViewBack.h - views->compositeView.h) / 2);
-	copyRect(&clip.destRect, views->compositeView);
+	copyRect(&clip.viewRect, views->compositeView);
   //buildBorder(&compositeBorder, &compositeViewBack, BORDER_SIDE_OUTSIDE);
 
 	// Put the file browser view in the top right portion (1/6th) of the screen
@@ -450,8 +452,8 @@ void setVideoClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)
 	int width, height;
 	SDL_GetWindowSize(window, &width, &height);
 	if(x < 0 || y < 0 || x > width || y > height) return;
-	clip->destRect.x = x;
-	clip->destRect.y = y;
+	clip->viewRect.x = x;
+	clip->viewRect.y = y;
 }
 
 #endif
