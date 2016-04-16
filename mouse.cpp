@@ -64,6 +64,8 @@ global VideoFile Global_VideoFile = {};
 global VideoClip Global_VideoClip = {};
 
 // TEST VIDEO FILES
+// TESTAVI: 1 frame green, 29 frames red, 29 frames blue, 1 frame cyan
+global const char *testvideo      = "../res/video/test.avi";
 global const char *Anime404mp4    = "../res/video/Anime404.mp4";
 global const char *Anime404webm   = "../res/video/Anime404.webm";
 global const char *dance          = "../res/video/dance.mp4";
@@ -400,9 +402,9 @@ int main(int argc, char **argv)
 	// buffer of a loaded video file, the other to be a clip that holds indicies of frames of that
 	// file to play on the timeline.
 
-	const char *pm4 =  "H:\\Fraps\\Movies\\MISC\\pm4 - 2.avi";
+	const char *pm4 =  "H:\\Fraps\\Movies\\MISC\\pm4 - 2.avi"; // DEBUG Long file (only on Quasar)
 
-	loadVideoFile(&Global_VideoFile, Global_Renderer, Anime404mp4);
+	loadVideoFile(&Global_VideoFile, Global_Renderer, dance); // TEST XXX
 	printVideoFileInfo(Global_VideoFile);
 	createVideoClip(&Global_VideoClip, &Global_VideoFile, Global_Renderer, Global_ClipNumbers++);
 	resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
@@ -411,34 +413,8 @@ int main(int argc, char **argv)
 	Global_Paused = false; // DEBUG
 	SDL_SetRenderDrawBlendMode(Global_Renderer, SDL_BLENDMODE_BLEND);
 
-#if 0
-	// TODO: Build a font map
-	SDL_Surface *fontSurfaces[94];
-	SDL_Texture *fontTextures[94];
-	TTF_Font *fontAnaheimRegular = TTF_OpenFont("../res/fonts/Anaheim-Regular.ttf", 16);
-	int fontW, fontH;
-	SDL_Color color = { 0, 0, 0 }; // SDL_color black
-	for(int currentC = 32, currentT = 0; currentC < 126; ++currentC, ++currentT)
-	{
-		char c = currentC;
-		fontSurfaces[currentT] = TTF_RenderGlyph_Blended(fontAnaheimRegular, c, color);
-		fontTextures[currentT] = SDL_CreateTextureFromSurface(Global_Renderer, fontSurfaces[currentT]);
-	}
-	// TTF_SizeText(font, testText, &fontW, &fontH);
-	SDL_Surface *textSurface = TTF_RenderText_Blended(fontAnaheimRegular, "Hello world", color);
-	SDL_Texture *textTexture = SDL_CreateTextureFromSurface(Global_Renderer, textSurface);
-	SDL_Rect textRect;
-	textRect.x = 15;
-	textRect.y = 10;
-	textRect.w = textSurface->w;
-	textRect.h = textSurface->h;
-
-	SDL_FreeSurface(textSurface);
-#endif
-
-	int startTicks = SDL_GetTicks();
 	float ticksElapsed = 0.0f;
-
+	int startTicks = SDL_GetTicks();
 	while(Global_Running)
 	{
 		HandleEvents(event, &Global_VideoClip);
@@ -474,7 +450,6 @@ int main(int argc, char **argv)
 		drawBorder(Global_Renderer, timelineBorder);
 		drawBorder(Global_Renderer, effectsBorder);
 
-		// SDL_RenderCopy(Global_Renderer, textTexture, NULL, &textRect);
 
 		if(!Global_Paused)
 		{
@@ -483,10 +458,13 @@ int main(int argc, char **argv)
 			if(ticksElapsed >= 
 			   (Global_VideoClip.vfile->msperframe - (Global_VideoClip.vfile->msperframe * 0.05f)))
 			{
-				if(playIndex < Global_VideoClip.endFrame)
+				if(playIndex < Global_VideoFile.nframes - 1) // - 1 because packetbuffer is 0 indexed
 				{
+					decodeFrameFromPacket(&Global_VideoClip, &Global_VideoFile, playIndex);
+					updateVideoClipTexture(&Global_VideoClip);
 					playIndex++;
 				}
+				
 				ticksElapsed = 0;
 			}
 		}
