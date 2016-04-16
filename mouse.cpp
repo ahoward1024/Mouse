@@ -22,6 +22,7 @@ extern "C"
 }
 
 #include "xtrace.h" // NOTE: See note inside xtrace.h (for Visual Studio debugging)
+#include "util.h"
 
 #include "datatypes.h"
 #include "colors.h"
@@ -62,24 +63,36 @@ global ViewRects Global_Views = {};
 global VideoFile Global_VideoFile = {};
 global VideoClip Global_VideoClip = {};
 
-global const char *Anime404mp4 = "../res/video/Anime404.mp4";
-global const char *Anime404webm= "../res/video/Anime404.webm";
-global const char *dance =       "../res/video/dance.mp4";
-global const char *froggy =      "../res/video/froggy.gif";
-global const char *groggy =      "../res/video/groggy.gif";
-global const char *h2bmkv =      "../res/video/h2b.mkv"; // FIXME: Does not decode correctly
-global const char *h2bmp4 =      "../res/video/h2b.mp4";
-global const char *kiloshelos =  "../res/video/kiloshelos.mp4";
-global const char *nggyu =       "../res/video/nggyu.mp4";
-global const char *ruskie =      "../res/audio/ruskie.webm";
-global const char *trump =       "../res/video/trump.webm";
-global const char *vapor =       "../res/video/vapor.webm";
-global const char *watamote =    "../res/video/watamote.webm";
+// TEST VIDEO FILES
+global const char *Anime404mp4    = "../res/video/Anime404.mp4";
+global const char *Anime404webm   = "../res/video/Anime404.webm";
+global const char *dance          = "../res/video/dance.mp4";
+global const char *froggy         = "../res/video/froggy.gif";
+global const char *groggy         = "../res/video/groggy.gif";
+global const char *h2bmkv         = "../res/video/h2b.mkv"; // NOTE: This file is broken
+global const char *h2bmp4         = "../res/video/h2b.mp4";
+global const char *kiloshelos     = "../res/video/kiloshelos.mp4";
+global const char *nevercomedown  = "../res/video/nevercomedown.mkv";
+global const char *nggyu          = "../res/video/nggyu.mp4";
+global const char *trump          = "../res/video/trump.webm";
+global const char *trumpncd       = "../res/video/trump-nevercomedown.webm";
+global const char *vapor          = "../res/video/vapor.webm";
+global const char *watamote       = "../res/video/watamote.webm";
+
+// TEST AUDIO FILES
+global const char *intoxicated    = "../res/audio/Intoxicated.mp3";
+global const char *ncdmp3         = "../res/audio/nevercomedown.mp3";
+global const char *ringmp3        = "../res/audio/Ring.mp3";
+global const char *ruskie         = "../res/audio/ruskie.webm";
+global const char *someonenew     = "../res/audio/Someone New.mp3";
+global const char *switchfriends  = "../res/audio/Switch Friends.wav";
 
 global WindowLayout Global_Layout = LAYOUT_SINGLE;
 
 global bool Global_Running = true;
 global bool Global_Paused = false;
+global int playIndex = 0;
+global int Global_ClipNumbers = 0;
 
 global SDL_Window *Global_Window;
 global SDL_Renderer *Global_Renderer;
@@ -153,7 +166,7 @@ void initAudioDevice()
 	wantedSpec.userdata = NULL;
 
 	int numAudioDevices = SDL_GetNumAudioDevices(0);
-	printf("Available audio devices: \n");
+	printf("Available audio output devices: \n");
 	for(int i = 0; i < numAudioDevices; ++i)
 	{
 		printf("Device %d: %s\n", i, SDL_GetAudioDeviceName(i, 0));
@@ -270,14 +283,11 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				case SDLK_RIGHT:
 				{
 					if(!Global_Paused) Global_Paused = true;
-					//decodeVideoFrameNext(clip);
-					//updateVideoClipTexture(clip);
+					Global_VideoClip.currentFrame++;
 				} break;
 				case SDLK_LEFT:
 				{
 					if(!Global_Paused) Global_Paused = true;
-					//decodeVideoFramePrev(clip);
-					//updateVideoClipTexture(clip);
 				} break;
 				case SDLK_t:
 				{
@@ -286,7 +296,6 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				} break;
 				case SDLK_1:
 				{
-
 
 				} break;
 				case SDLK_2:
@@ -368,14 +377,14 @@ int main(int argc, char **argv)
 
 	av_register_all();
 
-	SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO);
+	SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO|SDL_INIT_TIMER);
 	TTF_Init();
 	initAudioDevice();
 
 	Global_Window = SDL_CreateWindow("Mouse", 
 	                                 SDL_WINDOWPOS_CENTERED, 
 	                                 SDL_WINDOWPOS_CENTERED, 
-	                                 1024, 576, 
+	                                 1920, 1080, 
 	                                 SDL_WINDOW_OPENGL|SDL_WINDOW_RESIZABLE);
 	int windowWidth, windowHeight;
 
@@ -390,9 +399,12 @@ int main(int argc, char **argv)
 	// TODO: Make a seperate structure for video clips. We want two structures, one that holds a frame
 	// buffer of a loaded video file, the other to be a clip that holds indicies of frames of that
 	// file to play on the timeline.
-	loadVideoFile(&Global_VideoFile, fname);
+
+	const char *pm4 =  "H:\\Fraps\\Movies\\MISC\\pm4 - 2.avi";
+
+	loadVideoFile(&Global_VideoFile, Global_Renderer, Anime404mp4);
 	printVideoFileInfo(Global_VideoFile);
-	createVideoClip(&Global_VideoClip, &Global_VideoFile, Global_Renderer);
+	createVideoClip(&Global_VideoClip, &Global_VideoFile, Global_Renderer, Global_ClipNumbers++);
 	resizeAllWindowElements(Global_Window, &Global_Views, Global_VideoClip, Global_Layout);
 	printVideoClipInfo(Global_VideoClip);
 
@@ -426,8 +438,6 @@ int main(int argc, char **argv)
 
 	int startTicks = SDL_GetTicks();
 	float ticksElapsed = 0.0f;
-
-	int index = 0;
 
 	while(Global_Running)
 	{
@@ -473,11 +483,9 @@ int main(int argc, char **argv)
 			if(ticksElapsed >= 
 			   (Global_VideoClip.vfile->msperframe - (Global_VideoClip.vfile->msperframe * 0.05f)))
 			{
-				// playVideoClip(Global_VideoClip);
-				if(index < Global_VideoClip.vfile->frameBufferSize)
+				if(playIndex < Global_VideoClip.endFrame)
 				{
-					playFrameAtIndex(&Global_VideoClip, index);
-					index++;
+					playIndex++;
 				}
 				ticksElapsed = 0;
 			}

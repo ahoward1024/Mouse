@@ -1,8 +1,6 @@
 #ifndef VIDEO_H
 #define VIDEO_H
 
-#define MAX_FRAME_BUFFER_SIZE 65536
-
 // Video only clips
 // NOTE:IMPORTANT: Video clips MUST be initalized to zero.
 struct VideoFile
@@ -11,7 +9,8 @@ struct VideoFile
 	AVCodecContext     *codecCtx;
 	AVCodec            *codec;
 	AVStream           *stream;
-	AVFrame            *frameBuffer[MAX_FRAME_BUFFER_SIZE];
+	AVFrame           **frameBuffer;
+	SDL_Texture       **textureBuffer;
 	struct SwsContext  *swsCtx;
 	const char         *filename;
 	int                 streamIndex;
@@ -21,10 +20,17 @@ struct VideoFile
 	int                 width;
 	int                 height;
 	int                 frameBufferSize;
+	int                 textureBufferSize;
+	uint32              nframes;
+	uint8              *yPlane;  
+	uint8              *uPlane;  
+	uint8              *vPlane;  
+	int32               uvPitch; 
 	float               framerate;
 	float               avgFramerate;
 	float               msperframe;
 	float               aspectRatioF;
+	bool                probeNeeded;
 };
 
 struct VideoClip
@@ -40,6 +46,7 @@ struct VideoClip
 	int           beginFrame;
 	int           endFrame;
 	int           currentFrame;
+	int           number;
 };
 
 // This will free the clip for reinitalization, we do not free the texture
@@ -50,13 +57,19 @@ void freeVideoFile(VideoFile *vfile)
 	avcodec_close(vfile->codecCtx);
 	avformat_close_input(&vfile->formatCtx);
 	for(int i = 0; i < vfile->frameBufferSize; ++i)
-		av_free(vfile->frameBuffer[i]);
+	{
+		if(vfile->frameBuffer[i])
+		{
+			av_frame_free(&vfile->frameBuffer[i]);
+		}
+	}
+	av_frame_free(vfile->frameBuffer);
 	av_free(vfile->swsCtx);
 }
 
 void freeVideoClip(VideoClip *clip)
 {
-	printf("Freeing video clip\n");
+	printf("Freeing video clip %d : %s\n", clip->number, clip->vfile->filename);
 	SDL_free(clip->texture);
 	free(clip->yPlane);
 	free(clip->uPlane);
@@ -92,14 +105,14 @@ void printVideoFileInfo(VideoFile vfile)
 	printf("Video bitrate: ");
 	if (vfile.formatCtx->bit_rate) printf("%d kb/s\n", (int64)vfile.formatCtx->bit_rate / 1000);
 	else printf("N/A\n");
-	printf("Total bitrate: %d\n", vfile.bitrate);
-	printf("Real based framerate: %.2ffps\n", vfile.framerate);
-	printf("Milliseconds per frame: %.4f\n", vfile.msperframe);
-	printf("Average framerate: %.2fps\n", vfile.avgFramerate);
+	printf("Real based framerate: %.2f fps\n", vfile.framerate);
+	printf("Milliseconds per frame: %.4f ms\n", vfile.msperframe);
+	printf("Average framerate: %.2f fps\n", vfile.avgFramerate);
 	printf("Width/Height: %dx%d\n", vfile.width, vfile.height);
 	printf("Aspect Ratio: (%f), [%d:%d]\n", vfile.aspectRatioF, 
 	       vfile.aspectRatioW, vfile.aspectRatioH);
-	printf("Number of frames: %d\n", vfile.frameBufferSize);
+	printf("Number of frames: %d\n", vfile.nframes);
+	printf("Probe needed: %s\n", (vfile.probeNeeded ? "true" : "false"));
 	printf("> VIDEO FILE\n");
 	printf("\n");
 }
@@ -143,9 +156,10 @@ void updateVideoClipTexture(VideoClip *clip, AVFrame *frame)
 void playFrameAtIndex(VideoClip *clip, int index)
 {
 	updateVideoClipTexture(clip, clip->vfile->frameBuffer[index]);
+	clip->currentFrame = index;
 }
 
-void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer)
+void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer, int number)
 {
 	clip->vfile = vfile;
 
@@ -175,7 +189,66 @@ void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer)
 	clip->currentFrame = 0;
 	clip->endFrame = clip->vfile->frameBufferSize;
 
-	updateVideoClipTexture(clip, clip->vfile->frameBuffer[0]); // Load first frame into texture
+	//updateVideoClipTexture(clip, clip->vfile->textureBuffer[0]); // Load first frame into texture
+
+	clip->number = number;
+}
+
+void copyFrameToTexture(AVFrame *frame, VideoFile *vfile, int index)
+{
+	AVPicture pict;
+	pict.data[0] = vfile->yPlane;
+	pict.data[1] = vfile->uPlane;
+	pict.data[2] = vfile->vPlane;
+	pict.linesize[0] = vfile->width;
+	pict.linesize[1] = vfile->uvPitch;
+	pict.linesize[2] = vfile->uvPitch;
+
+	sws_scale(vfile->swsCtx, (uint8 const * const *)frame->data, 
+	          frame->linesize, 
+	          0, vfile->codecCtx->height, pict.data, pict.linesize);
+
+	SDL_UpdateYUVTexture(vfile->textureBuffer[index], NULL, vfile->yPlane, 
+	                     vfile->codecCtx->width, vfile->uPlane,
+	                     vfile->uvPitch, vfile->vPlane, vfile->uvPitch);
+
+}
+
+void storeAllFramesToTextures(VideoFile *vfile)
+{
+	AVPacket packet;
+	av_init_packet(&packet);
+
+	int nframe = 0;
+
+	vfile->textureBufferSize = 0;
+
+	AVFrame *frame = av_frame_alloc();
+
+	int start = SDL_GetTicks();
+
+	while(av_read_frame(vfile->formatCtx, &packet) >= 0)
+	{
+		int frameFinished = 0;
+		if(packet.stream_index == vfile->streamIndex)
+		{
+			do
+			{
+				avcodec_decode_video2(vfile->codecCtx, frame, &frameFinished, &packet);
+			} while(!frameFinished);
+			if(frameFinished)
+			{
+				copyFrameToTexture(frame, vfile, nframe);
+				nframe++;
+			}
+		}
+	}
+
+	int end = SDL_GetTicks();
+
+	printf("Finished decoding and storing all frames (%d) in: %dms\n\n", nframe, end - start);
+
+	vfile->textureBufferSize = nframe;
 }
 
 void storeAllFramesInBuffer(VideoFile *vfile)
@@ -196,7 +269,10 @@ void storeAllFramesInBuffer(VideoFile *vfile)
 		int frameFinished = 0;
 		if(packet.stream_index == vfile->streamIndex)
 		{
-			avcodec_decode_video2(vfile->codecCtx, frame, &frameFinished, &packet);
+			do
+			{
+				avcodec_decode_video2(vfile->codecCtx, frame, &frameFinished, &packet);
+			} while(!frameFinished);
 			if(frameFinished)
 			{
 				vfile->frameBuffer[nframe] = av_frame_clone(frame);
@@ -212,7 +288,62 @@ void storeAllFramesInBuffer(VideoFile *vfile)
 	vfile->frameBufferSize = nframe;
 }
 
-void loadVideoFile(VideoFile *vfile, const char *filename)
+uint32 probeForNumberOfFrames(VideoFile *vfile)
+{
+	AVPacket packet;
+	av_init_packet(&packet);
+
+	uint32 nframes = 0;
+
+	uint64 start = (uint64)SDL_GetTicks();
+
+	AVFormatContext *nfctx = NULL;
+	if(avformat_open_input(&nfctx, vfile->filename, NULL, NULL) != 0)
+	{
+		printf("FUCK YOU\n");
+	}
+
+	AVCodecContext *codecCtxOrig = vfile->stream->codec;
+	AVCodec *codec = avcodec_find_decoder(codecCtxOrig->codec_id);
+	
+	AVCodecContext *codecCtx	= avcodec_alloc_context3(codec);
+	avcodec_copy_context(codecCtx, codecCtxOrig);
+
+	avcodec_open2(codecCtx, codec, NULL);
+
+	while(av_read_frame(nfctx, &packet) >= 0)
+	{
+		int frameFinished = 0;
+		if(packet.stream_index == vfile->streamIndex)
+		{
+			AVFrame *frame = av_frame_alloc();
+			do
+			{
+				avcodec_decode_video2(codecCtx, frame, &frameFinished, &packet);
+			} while(!frameFinished);
+			nframes++;
+			av_frame_free(&frame);
+		}
+		av_free_packet(&packet);
+	}
+
+	avcodec_flush_buffers(vfile->codecCtx);
+
+	uint64 end = (uint64)SDL_GetTicks();
+	uint64 elapsed = end - start;
+
+	printTiming("probing frames", elapsed);
+	
+	av_free_packet(&packet);
+
+	avformat_close_input(&nfctx);
+	avcodec_close(codecCtx);
+	avcodec_close(codecCtxOrig);
+
+	return nframes;
+}
+
+void loadVideoFile(VideoFile *vfile, SDL_Renderer *renderer, const char *filename)
 {
 	vfile->formatCtx = NULL;
 	if(avformat_open_input(&vfile->formatCtx, filename, NULL, NULL) != 0)
@@ -254,15 +385,15 @@ void loadVideoFile(VideoFile *vfile, const char *filename)
 	avcodec_open2(vfile->codecCtx, vfile->codec, NULL);
 
 	vfile->swsCtx = sws_getContext(vfile->codecCtx->width,
-	                              vfile->codecCtx->height,
-	                              vfile->codecCtx->pix_fmt,
-	                              vfile->codecCtx->width,
-	                              vfile->codecCtx->height,
-	                              AV_PIX_FMT_YUV420P,
-	                              SWS_BILINEAR,
-	                              NULL,
-	                              NULL,
-	                              NULL);
+	                               vfile->codecCtx->height,
+	                               vfile->codecCtx->pix_fmt,
+	                               vfile->codecCtx->width,
+	                               vfile->codecCtx->height,
+	                               AV_PIX_FMT_YUV420P,
+	                               SWS_BILINEAR,
+	                               NULL,
+	                               NULL,
+	                               NULL);
 
 	// Use the video stream to get the real base framerate and average framerates
 	vfile->stream = vfile->formatCtx->streams[vfile->streamIndex];
@@ -282,12 +413,20 @@ void loadVideoFile(VideoFile *vfile, const char *filename)
 
 	vfile->frameBufferSize = 0;
 
-	for(int i = 0; i < MAX_FRAME_BUFFER_SIZE; ++i)
-	{
-		vfile->frameBuffer[i] = av_frame_alloc();
-	}
+	int yPlaneSz = vfile->codecCtx->width * vfile->codecCtx->height;
+	int uvPlaneSz = vfile->codecCtx->width * vfile->codecCtx->height / 4;
+	vfile->yPlane = (uint8 *)malloc(yPlaneSz);
+	vfile->uPlane = (uint8 *)malloc(uvPlaneSz);
+	vfile->vPlane = (uint8 *)malloc(uvPlaneSz);
+	vfile->uvPitch = vfile->codecCtx->width / 2;
 
-	storeAllFramesInBuffer(vfile);
+	vfile->probeNeeded = false;
+	vfile->nframes = vfile->formatCtx->streams[vfile->streamIndex]->nb_frames;
+	if(vfile->nframes == 0)
+	{
+		vfile->nframes = probeForNumberOfFrames(vfile);
+		vfile->probeNeeded = true;
+	}
 
 	avcodec_close(codecCtxOrig);
 }

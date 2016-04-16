@@ -305,11 +305,11 @@ internal void dualLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 	}
 	else
 	{
-		currentViewW = clip.vfile->codecCtx->width;
-		currentViewH = clip.vfile->codecCtx->height;
+		currentViewW = clip.vfile->width;
+		currentViewH = clip.vfile->height;
 
-		compositeViewW = clip.vfile->codecCtx->width;
-		compositeViewH = clip.vfile->codecCtx->height;
+		compositeViewW = clip.vfile->width;
+		compositeViewH = clip.vfile->height;
 	}
 	// (??? STC ???)) >
 
@@ -409,8 +409,8 @@ internal void singleLayout(SDL_Window *window, ViewRects *views, VideoClip clip)
 	}
 	else
 	{
-		compositeViewW = clip.vfile->codecCtx->width;
-		compositeViewH = clip.vfile->codecCtx->height;
+		compositeViewW = clip.vfile->width;
+		compositeViewH = clip.vfile->height;
 	}
 	// (??? STC ???)) >
 
