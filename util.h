@@ -3,6 +3,13 @@
 
 #include "datatypes.h"
 
+void printRectangle(SDL_Rect r, const char *name)
+{
+	printf("%s\n", name);
+	printf("\t(X,Y) : (%d,%d)\n", r.x, r.y);
+	printf("\t(W,H) : (%d,%d)\n", r.w, r.h);
+}
+
 void printTiming(uint64 time)
 {
 	if(time < 1000) printf("Finished in: [00m:00s:%dms]\n\n", time);
