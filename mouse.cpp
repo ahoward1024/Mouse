@@ -90,7 +90,7 @@ global const char *switchfriends  = "../res/audio/Switch Friends.wav";
 
 global bool Global_running = true;
 global bool Global_paused = false;
-global int  Global_playIndex = 1;
+global int  Global_playIndex = 0;
 global int  Global_clipNumbers = 0;
 
 global SDL_Window   *Global_window;
@@ -134,9 +134,9 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				{
 					if(!Global_paused) Global_paused = true;
 					#if 1
-					if(Global_videoClip.currentFrame < Global_videoClip.endFrame)
+					if(Global_playIndex < Global_videoClip.endFrame)
 					{
-						decodeFrameFromPacket(&Global_videoClip, ++Global_videoClip.currentFrame);
+						decodeFrameFromPacket(&Global_videoClip, ++Global_playIndex);
 						updateVideoClipTexture(&Global_videoClip);
 					}
 					#endif
@@ -145,9 +145,9 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				{
 					if(!Global_paused) Global_paused = true;
 					#if 1
-					if(Global_videoClip.currentFrame > 0)
+					if(Global_playIndex > 0)
 					{
-						decodeFrameFromPacket(&Global_videoClip, --Global_videoClip.currentFrame);
+						decodeFrameFromPacket(&Global_videoClip, --Global_playIndex);
 						updateVideoClipTexture(&Global_videoClip);
 					}
 					#endif
@@ -202,7 +202,7 @@ int main(int argc, char **argv)
 
 	// Global_AudioDeviceID = initAudioDevice(Global_AudioSpec); WARNING XXX FIXME Breaks SDL_Quit
 
-	loadVideoFile(&Global_videoFile, Global_renderer, kiloshelos); // TEST XXX
+	loadVideoFile(&Global_videoFile, Global_renderer, dance); // TEST XXX
 	printVideoFileInfo(Global_videoFile);
 	createVideoClip(&Global_videoClip, &Global_videoFile, Global_renderer, Global_clipNumbers++);
 	printVideoClipInfo(Global_videoClip);
@@ -241,9 +241,10 @@ int main(int argc, char **argv)
 			if(ticksElapsed >= 
 			   (Global_videoClip.vfile->msperframe - (Global_videoClip.vfile->msperframe * 0.05f)))
 			{
-				if(Global_playIndex >= 0 || Global_playIndex < Global_videoClip.endFrame)
+				if(Global_playIndex < Global_videoClip.endFrame)
 				{
 					decodeNextVideoFrame(&Global_videoClip);
+					updateVideoClipTexture(&Global_videoClip);
 					Global_playIndex++;
 				}
 				ticksElapsed = 0;

@@ -20,7 +20,8 @@ struct VideoFile
 	int              arH;
 	int              width;
 	int              height;
-	uint32           nframes;
+	uint32           videoFrames;
+	uint32					 totalFrames;
 	float            framerate;
 	float            avgFramerate;
 	float            msperframe;
@@ -45,7 +46,6 @@ struct VideoClip
 	int           arH;
 	int           beginFrame;
 	int           endFrame;
-	int           currentFrame;
 	int           number;
 };
 
@@ -103,9 +103,6 @@ void decodeNextVideoFrame(VideoClip *clip)
 			}
 		}
 	} while(!frameFinished);
-
-	updateVideoClipTexture(clip);
-	clip->currentFrame++;
 }
 
 void decodeFrameFromPacket(VideoClip *clip, int index)
@@ -142,14 +139,15 @@ void decodeFrameFromPacket(VideoClip *clip, int index)
 	av_packet_unref(packet);
 }
 
-uint32 probeForNumberOfFrames(VideoFile *vfile)
+void probeForNumberOfFrames(VideoFile *vfile)
 {
 	vfile->packetBuffer.size = 65536;
 	vfile->packetBuffer.buffer = (AVPacket **)calloc(vfile->packetBuffer.size, sizeof(AVPacket *));
 	for(int i = 0; i < vfile->packetBuffer.size; ++i)
 		vfile->packetBuffer.buffer[i] = (AVPacket *)calloc(1, sizeof(AVPacket));
 
-	uint32 result = 0;
+	uint32 totalFrames = 0;
+	uint32 videoFrames = 0;
 
 	AVFormatContext *formatCtx = NULL;
 	if(avformat_open_input(&formatCtx, vfile->formatCtx->filename, NULL, NULL) != 0)
@@ -183,10 +181,12 @@ uint32 probeForNumberOfFrames(VideoFile *vfile)
 
 			if(ret > 0)
 			{
-				vfile->packetBuffer.buffer[result] = av_packet_clone(&packet);
+				vfile->packetBuffer.buffer[totalFrames] = av_packet_clone(&packet);
 
-				result++;
+				totalFrames++;
 			}
+
+			if(frameFinished) videoFrames++;
 		}
 		av_packet_unref(&packet);
 	}
@@ -200,7 +200,8 @@ uint32 probeForNumberOfFrames(VideoFile *vfile)
 	avcodec_close(codecCtx);
 	avcodec_close(codecCtxOrig);
 
-	return result;
+	vfile->totalFrames = totalFrames;
+	vfile->videoFrames = videoFrames;
 }
 
 void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer, int number)
@@ -249,10 +250,10 @@ void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer, 
 	                                  clip->vfile->width, clip->vfile->height);
 
 	clip->beginFrame = 0;
-	clip->currentFrame = 0;
-	clip->endFrame = clip->vfile->nframes;
+	clip->endFrame = clip->vfile->videoFrames;
 
 	decodeNextVideoFrame(clip);
+	updateVideoClipTexture(clip);
 
 	clip->number = number;
 }
@@ -311,7 +312,7 @@ void loadVideoFile(VideoFile *vfile, SDL_Renderer *renderer, const char *filenam
 	av_reduce(&vfile->arW, &vfile->arH, vfile->codecCtx->width, vfile->codecCtx->height, 1024);
 	vfile->arF = (float)vfile->arW / (float)vfile->arH;
 
-	vfile->nframes = probeForNumberOfFrames(vfile);
+	probeForNumberOfFrames(vfile);
 
 	avcodec_close(codecCtxOrig);
 }
@@ -350,7 +351,8 @@ void printVideoFileInfo(VideoFile vfile)
 	printf("Average framerate: %.2f fps\n", vfile.avgFramerate);
 	printf("Width/Height: %dx%d\n", vfile.width, vfile.height);
 	printf("Aspect Ratio: (%.2f), [%d:%d]\n", vfile.arF, vfile.arW, vfile.arH);
-	printf("Number of frames: %d\n", vfile.nframes);
+	printf("Video frames: %d\n", vfile.videoFrames);
+	printf("Total frames: %d\n", vfile.totalFrames);
 	printf("Size of packet buffer: %d\n", vfile.packetBuffer.size);
 	printf("> VIDEO FILE\n");
 	printf("\n");
@@ -369,7 +371,6 @@ void printVideoClipInfo(VideoClip clip)
 	printf("Aspect ratio: [%d:%d]\n", clip.arW, clip.arH);
 	printf("Beginning frame: %d\n", clip.beginFrame);
 	printf("End frame: %d\n", clip.endFrame);
-	printf("Current frame: %d\n", clip.currentFrame);
 	printf("> VIDEO CLIP\n");
 	printf("\n");
 }
