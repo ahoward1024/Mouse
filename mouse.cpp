@@ -136,8 +136,9 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					#if 1
 					if(Global_playIndex < Global_videoClip.endFrame)
 					{
-						decodeFrameFromPacket(&Global_videoClip, ++Global_playIndex);
+						decodeNextVideoFrame(&Global_videoClip);
 						updateVideoClipTexture(&Global_videoClip);
+						Global_playIndex++;
 					}
 					#endif
 				} break;
@@ -147,7 +148,11 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					#if 1
 					if(Global_playIndex > 0)
 					{
-						decodeFrameFromPacket(&Global_videoClip, --Global_playIndex);
+						av_seek_frame(Global_videoClip.vfile->formatCtx, 
+						              Global_videoClip.vfile->streamIndex,
+						              --Global_playIndex,
+						              AVSEEK_FLAG_ANY|AVSEEK_FLAG_BACKWARD);
+						decodeNextVideoFrame(&Global_videoClip);
 						updateVideoClipTexture(&Global_videoClip);
 					}
 					#endif

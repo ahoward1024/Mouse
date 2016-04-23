@@ -14,6 +14,7 @@ struct VideoFile
 	AVCodec         *codec;
 	AVStream        *stream;
 	PacketBuffer     packetBuffer;
+	int              dtsBuffer;
 	int              streamIndex;
 	int              bitrate;
 	int              arW;
