@@ -1,10 +1,20 @@
 #ifndef VIDEO_H
 #define VIDEO_H
 
-struct PacketBuffer
+// Packet Frame Data
+struct PFData
 {
-	AVPacket **buffer;
-	uint32     size;
+	AVPacket      *packet;
+	AVPictureType  picType = AV_PICTURE_TYPE_NONE;
+	bool           keyframe = false;
+	int            pts = INT_MIN;
+	int            dts = INT_MIN;
+};
+
+struct DataBuffer
+{
+	PFData *data;
+	uint32  size;
 };
 
 struct VideoFile
@@ -13,20 +23,20 @@ struct VideoFile
 	AVCodecContext  *codecCtx;
 	AVCodec         *codec;
 	AVStream        *stream;
-	PacketBuffer     packetBuffer;
-	int              dtsBuffer;
-	int              streamIndex;
-	int              bitrate;
-	int              arW;
-	int              arH;
-	int              width;
-	int              height;
-	uint32           videoFrames;
-	uint32					 totalFrames;
-	float            framerate;
-	float            avgFramerate;
-	float            msperframe;
-	float            arF;
+	DataBuffer       dataBuffer;
+	int              streamIndex  = 0;
+	int              bitrate      = 0;
+	int              arW          = 0;
+	int              arH          = 0;
+	int              width        = 0;
+	int              height       = 0;
+	uint32           nkeyframes   = 0;
+	uint32           videoFrames  = 0;
+	uint32					 totalFrames  = 0;
+	float            framerate    = 0.0f;
+	float            avgFramerate = 0.0f;
+	float            msperframe   = 0.0f;
+	float            arF          = 0.0f;
 };
 
 struct VideoClip
@@ -88,7 +98,7 @@ void updateVideoClipTexture(VideoClip *clip)
 }
 
 // Return 0 for sucessful frame, 1 for end of file or error
-void decodeNextVideoFrame(VideoClip *clip)
+void decodeFramesInSuccession(VideoClip *clip)
 {
 	AVPacket packet;
 	av_init_packet(&packet);
@@ -108,24 +118,13 @@ void decodeNextVideoFrame(VideoClip *clip)
 
 void decodeFrameFromPacket(VideoClip *clip, int index)
 {
-	AVPacket *packet = (AVPacket *)malloc(sizeof(AVPacket));
-	av_init_packet(packet);
-	packet = av_packet_clone(clip->vfile->packetBuffer.buffer[index]);
 	int frameFinished = 0;
-	int result = 0;
-	int i = index;
-
-	do
-	{
-		if(packet->stream_index == clip->vfile->packetBuffer.buffer[i]->stream_index)
-		{
-			result = avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished, 
-	                               clip->vfile->packetBuffer.buffer[i]);
-		}
-		i++;
-	} while(!frameFinished);
+	avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished,
+	                      clip->vfile->dataBuffer.data[index].packet);
 
 #if 1
+	// IF the AV_CODEC_CAP_DELAY flag is set in the codec's capabilities, we MUST flush the decoder
+	// with a flush/null packet after every single call to the decoder.
 	if(clip->vfile->codec->capabilities & AV_CODEC_CAP_DELAY)
 	{
 		AVPacket pkt;
@@ -136,16 +135,65 @@ void decodeFrameFromPacket(VideoClip *clip, int index)
 		av_packet_unref(&pkt);
 	}
 #endif
+}
 
-	av_packet_unref(packet);
+void playClipAtIndex(VideoClip *clip, int index)
+{
+	int frameFinished = 0;
+
+	// printf("PLAY CLIP INDEX: %d\n", index);
+
+	if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_I)
+	{
+		decodeFrameFromPacket(clip, index);
+	}
+	else
+	{
+		AVPictureType type = AV_PICTURE_TYPE_NONE;
+		int idx = index;
+		int count = 0;
+		// printf("idx before loop = %d\n", idx);
+		while(idx > 0 && type != AV_PICTURE_TYPE_I)
+		{
+			type = clip->vfile->dataBuffer.data[idx].picType;
+			idx--;
+			count++;
+		}
+		// printf("idx after loop = %d\n", idx);
+		// printf("count = %d\n", count);
+		for(int i = 0; i <= count; ++i)
+		{
+			decodeFrameFromPacket(clip, i);
+		}
+	}
+
+#if 0
+	printf("INDEX: %d\n", index);
+	printf("IS KEYFRAME: %s\n", clip->vfile->dataBuffer.data[index].keyframe ? "TRUE" : "FALSE");
+	printf("PICT TYPE: ");
+	if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_I) printf("I\n");
+	else if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_P) printf("P\n");
+	else if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_B) printf("B\n");
+	else if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_S) printf("S\n");
+	else if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_SI) printf("SI\n");
+	else if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_SP) printf("SP\n");
+	else if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_BI) printf("BI\n");
+	else printf("NONE\n");
+	printf("\n");
+#endif
+
+	updateVideoClipTexture(clip);
 }
 
 void probeForNumberOfFrames(VideoFile *vfile)
 {
-	vfile->packetBuffer.size = 65536;
-	vfile->packetBuffer.buffer = (AVPacket **)calloc(vfile->packetBuffer.size, sizeof(AVPacket *));
-	for(int i = 0; i < vfile->packetBuffer.size; ++i)
-		vfile->packetBuffer.buffer[i] = (AVPacket *)calloc(1, sizeof(AVPacket));
+	vfile->dataBuffer.size = 65536;
+	vfile->dataBuffer.data = (PFData *)calloc(vfile->dataBuffer.size, sizeof(PFData));
+	for(int i = 0; i < vfile->dataBuffer.size; ++i)
+	{
+		vfile->dataBuffer.data[i].packet = (AVPacket *)malloc(sizeof(AVPacket));
+		av_init_packet(vfile->dataBuffer.data[i].packet);
+	}
 
 	uint32 totalFrames = 0;
 	uint32 videoFrames = 0;
@@ -182,12 +230,22 @@ void probeForNumberOfFrames(VideoFile *vfile)
 
 			if(ret > 0)
 			{
-				vfile->packetBuffer.buffer[totalFrames] = av_packet_clone(&packet);
-
+				vfile->dataBuffer.data[totalFrames].packet = av_packet_clone(&packet);
+				vfile->dataBuffer.data[totalFrames].picType = frame->pict_type;
+				if(frame->key_frame == 1)
+				{
+					vfile->dataBuffer.data[totalFrames].keyframe = true;
+					vfile->nkeyframes++;
+				}
+				vfile->dataBuffer.data[totalFrames].pts = frame->pkt_pts;
+				vfile->dataBuffer.data[totalFrames].dts = frame->pkt_dts;	
 				totalFrames++;
 			}
 
-			if(frameFinished) videoFrames++;
+			if(frameFinished)
+			{
+				videoFrames++;
+			}
 		}
 		av_packet_unref(&packet);
 	}
@@ -251,10 +309,11 @@ void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer, 
 	                                  clip->vfile->width, clip->vfile->height);
 
 	clip->beginFrame = 0;
-	clip->endFrame = clip->vfile->videoFrames;
+	if(clip->vfile->videoFrames = 0) clip->endFrame = clip->vfile->totalFrames; // HACK
+	else clip->endFrame = clip->vfile->totalFrames; // HACK
 
-	decodeNextVideoFrame(clip);
-	updateVideoClipTexture(clip);
+	// decodeNextVideoFrame(clip);
+	playClipAtIndex(clip, 0);
 
 	clip->number = number;
 }
@@ -353,8 +412,8 @@ void printVideoFileInfo(VideoFile vfile)
 	printf("Width/Height: %dx%d\n", vfile.width, vfile.height);
 	printf("Aspect Ratio: (%.2f), [%d:%d]\n", vfile.arF, vfile.arW, vfile.arH);
 	printf("Video frames: %d\n", vfile.videoFrames);
+	printf("Keyframes: %d\n", vfile.nkeyframes);
 	printf("Total frames: %d\n", vfile.totalFrames);
-	printf("Size of packet buffer: %d\n", vfile.packetBuffer.size);
 	printf("> VIDEO FILE\n");
 	printf("\n");
 }

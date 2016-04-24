@@ -133,14 +133,10 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				case SDLK_RIGHT:
 				{
 					if(!Global_paused) Global_paused = true;
-					#if 1
 					if(Global_playIndex < Global_videoClip.endFrame)
 					{
-						decodeNextVideoFrame(&Global_videoClip);
-						updateVideoClipTexture(&Global_videoClip);
-						Global_playIndex++;
+						playClipAtIndex(&Global_videoClip, ++Global_playIndex);
 					}
-					#endif
 				} break;
 				case SDLK_LEFT:
 				{
@@ -148,12 +144,7 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					#if 1
 					if(Global_playIndex > 0)
 					{
-						av_seek_frame(Global_videoClip.vfile->formatCtx, 
-						              Global_videoClip.vfile->streamIndex,
-						              --Global_playIndex,
-						              AVSEEK_FLAG_ANY|AVSEEK_FLAG_BACKWARD);
-						decodeNextVideoFrame(&Global_videoClip);
-						updateVideoClipTexture(&Global_videoClip);
+						playClipAtIndex(&Global_videoClip, --Global_playIndex);
 					}
 					#endif
 				} break;
@@ -207,7 +198,7 @@ int main(int argc, char **argv)
 
 	// Global_AudioDeviceID = initAudioDevice(Global_AudioSpec); WARNING XXX FIXME Breaks SDL_Quit
 
-	loadVideoFile(&Global_videoFile, Global_renderer, dance); // TEST XXX
+	loadVideoFile(&Global_videoFile, Global_renderer, kiloshelos); // TEST XXX
 	printVideoFileInfo(Global_videoFile);
 	createVideoClip(&Global_videoClip, &Global_videoFile, Global_renderer, Global_clipNumbers++);
 	printVideoClipInfo(Global_videoClip);
@@ -215,7 +206,7 @@ int main(int argc, char **argv)
 	if(!(SDL_GetWindowFlags(Global_window) & SDL_WINDOW_MAXIMIZED))
 		layoutWindowElements(Global_window, &Global_views, &Global_videoClip);
 
-	Global_paused = true; // DEBUG
+	Global_paused = false; // DEBUG
 	SDL_SetRenderDrawBlendMode(Global_renderer, SDL_BLENDMODE_BLEND);
 
 	float ticksElapsed = 0.0f;
@@ -238,7 +229,7 @@ int main(int argc, char **argv)
 
 		//setRenderColor(Global_renderer, tcView);
 		//SDL_RenderFillRect(Global_renderer, &Global_views.timeline);
-
+		#if 1
 		if(!Global_paused)
 		{
 			int endTicks = SDL_GetTicks();
@@ -248,7 +239,7 @@ int main(int argc, char **argv)
 			{
 				if(Global_playIndex < Global_videoClip.endFrame)
 				{
-					decodeNextVideoFrame(&Global_videoClip);
+					decodeFramesInSuccession(&Global_videoClip);
 					updateVideoClipTexture(&Global_videoClip);
 					Global_playIndex++;
 				}
@@ -256,6 +247,7 @@ int main(int argc, char **argv)
 			}
 		}
 		startTicks = SDL_GetTicks();
+		#endif
 
 		SDL_RenderCopy(Global_renderer, Global_videoClip.texture, NULL, 
 		               (SDL_Rect *)&Global_videoClip.videoRect);
