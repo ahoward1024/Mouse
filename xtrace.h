@@ -3,19 +3,20 @@
 
 // NOTE: This is for Visual Studio convenience. It takes any call to printf and sends it to
 // xtrace, which in turn calls OutputDebugString to output to the VS Output window.
-#ifdef __WIN32__
+#ifdef _WIN32
 #include <windows.h>
 #define printf xtrace
 void xtrace(LPCTSTR lpszFormat, ...)
 {
     va_list args;
     va_start(args, lpszFormat);
-    int nBuf;
-    TCHAR szBuffer[512]; // get rid of this hard-coded buffer
-    nBuf = _vsnprintf_s(szBuffer, 511, lpszFormat, args);
-    ::OutputDebugString(szBuffer);
+    int nBuf = _vscprintf(lpszFormat, args) + 1;
+    char *szBuffer = (char *)malloc(nBuf * sizeof(char));
+    vsnprintf_s(szBuffer, nBuf, nBuf - 1, lpszFormat, args);
+    OutputDebugString(szBuffer);
+    free(szBuffer);
     va_end(args);
 }
-#endif
+#endif // _WIN32
 
-#endif
+#endif // XTRACE_H

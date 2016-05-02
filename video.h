@@ -2,19 +2,14 @@
 #define VIDEO_H
 
 // Packet Frame Data
-struct PFData
+struct PacketData
 {
 	AVPacket      *packet;
 	AVPictureType  picType = AV_PICTURE_TYPE_NONE;
-	bool           keyframe = false;
-	int            pts = INT_MIN;
-	int            dts = INT_MIN;
-};
+	bool           iskeyframe = false;
 
-struct DataBuffer
-{
-	PFData *data;
-	uint32  size;
+	int64          pts = INT_MIN;
+	int64          dts = INT_MIN;
 };
 
 struct VideoFile
@@ -23,20 +18,23 @@ struct VideoFile
 	AVCodecContext  *codecCtx;
 	AVCodec         *codec;
 	AVStream        *stream;
-	DataBuffer       dataBuffer;
-	int              streamIndex  = 0;
-	int              bitrate      = 0;
-	int              arW          = 0;
-	int              arH          = 0;
-	int              width        = 0;
-	int              height       = 0;
-	uint32           nkeyframes   = 0;
-	uint32           videoFrames  = 0;
-	uint32					 totalFrames  = 0;
-	float            framerate    = 0.0f;
-	float            avgFramerate = 0.0f;
-	float            msperframe   = 0.0f;
-	float            arF          = 0.0f;
+	PacketData      *dataBuffer;
+	int              _dataBufferSize;
+	int             *keyframeList; 
+	int              streamIndex   = 0;
+	int              bitrate       = 0;
+	int              arW           = 0;
+	int              arH           = 0;
+	int              width         = 0;
+	int              height        = 0;
+	uint32           nkeyframes    = 0;
+	uint32           nvideoFrames  = 0;
+	uint32					 ntotalFrames  = 0;
+	uint64           timeBase      = 0;
+	float            framerate     = 0.0f;
+	float            avgFramerate  = 0.0f;
+	float            msperframe    = 0.0f;
+	float            arF           = 0.0f;
 };
 
 struct VideoClip
@@ -98,31 +96,133 @@ void updateVideoClipTexture(VideoClip *clip)
 }
 
 // Return 0 for sucessful frame, 1 for end of file or error
-void decodeFramesInSuccession(VideoClip *clip)
+int decodeSingleFrame(VideoClip *clip)
 {
+	printf("\n< START DECODE SINGLE FRAME:\n");
 	AVPacket packet;
 	av_init_packet(&packet);
 	int frameFinished = 0;
-	
+	int ret = 0;
 	do
 	{
 		if(av_read_frame(clip->vfile->formatCtx, &packet) >= 0)
 		{
 			if(packet.stream_index == clip->vfile->streamIndex)
 			{
-				avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished, &packet);
+				ret = avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished, &packet);
+				printf("DECODE: DTS %d\n", packet.dts);
 			}
 		}
+		av_packet_unref(&packet);
 	} while(!frameFinished);
+	av_packet_unref(&packet);
+	printf("> DONE DECODE SINGLE FRAME\n\n");
+	return ret;
 }
 
+void seekToNextFrame(VideoClip *clip, int index)
+{
+	avformat_flush(clip->vfile->formatCtx);
+	avio_flush(clip->vfile->formatCtx->pb);
+	int frameFinished = 0;
+	AVPacket *packet = (AVPacket *)malloc(sizeof(AVPacket));
+	av_init_packet(packet);
+	if(clip->vfile->dataBuffer[index].iskeyframe)
+	{
+		// Keyframe: read next frame and decode
+		do
+		{
+			if(av_read_frame(clip->vfile->formatCtx, packet) >= 0)
+			{
+				if(packet->stream_index == clip->vfile->streamIndex)
+				{
+					avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished, packet);
+				}
+			}
+			av_packet_unref(packet);
+		} while(!frameFinished);
+	}
+	else
+	{
+		// Non keyframe: seek to previous keyframe, read/decode frames to current frame
+		int i = 0;
+		while(clip->vfile->keyframeList[i] < index) ++i;
+		i -= 1;
+		av_seek_frame(clip->vfile->formatCtx, clip->vfile->streamIndex,
+		              clip->vfile->dataBuffer[i].packet->dts, AVSEEK_FLAG_BACKWARD);
+		packet = av_packet_clone(clip->vfile->dataBuffer[i].packet);
+		int count = index - clip->vfile->keyframeList[i];
+		for(int i = 0; i < count; ++i)
+		{
+			do
+			{
+				if(av_read_frame(clip->vfile->formatCtx, packet) >= 0)
+				{
+					if(packet->stream_index == clip->vfile->streamIndex)
+					{
+						avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished, packet);
+					}
+				}
+				av_packet_unref(packet);
+			} while(!frameFinished);
+		}
+	}
+
+	// Flush if AV_CODEC_CAP_DELAY
+	if(clip->vfile->codec->capabilities & AV_CODEC_CAP_DELAY)
+	{
+		AVPacket pkt;
+		av_init_packet(&pkt);
+		pkt.data = NULL;
+		pkt.size = 0;
+		avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished, &pkt);
+		av_packet_unref(&pkt);
+	}
+
+	updateVideoClipTexture(clip);
+
+	av_packet_unref(packet);
+}
+
+void seekToPrevFrame(VideoClip *clip, int index)
+{
+	printf("SEEK BACKWARDS\n");
+	int ts = clip->vfile->dataBuffer[index].pts;
+	printf("Inital timestamp from packet: %d\n", ts);
+
+	AVRational tbq = {1, AV_TIME_BASE};
+
+	ts = av_rescale_q(ts, tbq, 
+	                  clip->vfile->formatCtx->streams[clip->vfile->streamIndex]->time_base);
+
+	ts = 66066;
+	printf("Rescaled timestamp: %d\n", ts);
+
+#if 1
+	if(av_seek_frame(clip->vfile->formatCtx, 
+	                 clip->vfile->streamIndex, 
+	                 ts, AVSEEK_FLAG_ANY|AVSEEK_FLAG_BACKWARD) < 0)
+	{
+		printf("Seek failed at pos: %d!!\n", index);
+	}
+	else
+	{
+		printf("Seek sucessful. Flushing buffers, decoding single frame, updating texture.\n");
+		avcodec_flush_buffers(clip->vfile->codecCtx);
+		int dc = decodeSingleFrame(clip);
+		printf("%d\n", dc);
+		updateVideoClipTexture(clip);
+	}
+#endif
+}
+
+#if 0
 void decodeFrameFromPacket(VideoClip *clip, int index)
 {
 	int frameFinished = 0;
 	avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished,
 	                      clip->vfile->dataBuffer.data[index].packet);
 
-#if 1
 	// IF the AV_CODEC_CAP_DELAY flag is set in the codec's capabilities, we MUST flush the decoder
 	// with a flush/null packet after every single call to the decoder.
 	if(clip->vfile->codec->capabilities & AV_CODEC_CAP_DELAY)
@@ -134,14 +234,15 @@ void decodeFrameFromPacket(VideoClip *clip, int index)
 		avcodec_decode_video2(clip->vfile->codecCtx, clip->frame, &frameFinished, &pkt);
 		av_packet_unref(&pkt);
 	}
-#endif
 }
+#endif
 
-void playClipAtIndex(VideoClip *clip, int index)
+#if 0
+void seekToClipAtIndex(VideoClip *clip, int index)
 {
 	int frameFinished = 0;
 
-	// printf("PLAY CLIP INDEX: %d\n", index);
+	printf("PLAY CLIP INDEX: %d\n", index);
 
 	if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_I)
 	{
@@ -152,24 +253,27 @@ void playClipAtIndex(VideoClip *clip, int index)
 		AVPictureType type = AV_PICTURE_TYPE_NONE;
 		int idx = index;
 		int count = 0;
-		// printf("idx before loop = %d\n", idx);
+		printf("idx before loop = %d\n", idx);
 		while(idx > 0 && type != AV_PICTURE_TYPE_I)
 		{
 			type = clip->vfile->dataBuffer.data[idx].picType;
 			idx--;
 			count++;
 		}
-		// printf("idx after loop = %d\n", idx);
-		// printf("count = %d\n", count);
+
+		printf("idx after loop = %d\n", idx);
+		printf("count = %d\n", count);
 		for(int i = 0; i <= count; ++i)
 		{
 			decodeFrameFromPacket(clip, i);
 		}
 	}
 
-#if 0
+#if 1
 	printf("INDEX: %d\n", index);
 	printf("IS KEYFRAME: %s\n", clip->vfile->dataBuffer.data[index].keyframe ? "TRUE" : "FALSE");
+	printf("DTS: %d\n", clip->vfile->dataBuffer.data[index].dts);
+	printf("PTS: %d\n", clip->vfile->dataBuffer.data[index].pts);
 	printf("PICT TYPE: ");
 	if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_I) printf("I\n");
 	else if(clip->vfile->dataBuffer.data[index].picType == AV_PICTURE_TYPE_P) printf("P\n");
@@ -184,16 +288,21 @@ void playClipAtIndex(VideoClip *clip, int index)
 
 	updateVideoClipTexture(clip);
 }
+#endif
 
 void probeForNumberOfFrames(VideoFile *vfile)
 {
-	vfile->dataBuffer.size = 65536;
-	vfile->dataBuffer.data = (PFData *)calloc(vfile->dataBuffer.size, sizeof(PFData));
-	for(int i = 0; i < vfile->dataBuffer.size; ++i)
+	double estimatedFrames = ceil(((double)vfile->formatCtx->duration / AV_TIME_BASE) * 
+	                              vfile->framerate);
+	vfile->_dataBufferSize = estimatedFrames;
+	vfile->dataBuffer = (PacketData *)malloc(estimatedFrames * sizeof(PacketData));
+	for(int i = 0; i < estimatedFrames; ++i)
 	{
-		vfile->dataBuffer.data[i].packet = (AVPacket *)malloc(sizeof(AVPacket));
-		av_init_packet(vfile->dataBuffer.data[i].packet);
+		vfile->dataBuffer[i].packet = (AVPacket *)malloc(sizeof(AVPacket));
+		av_init_packet(vfile->dataBuffer[i].packet);
 	}
+
+	vfile->keyframeList = (int *)malloc(estimatedFrames * sizeof(int));
 
 	uint32 totalFrames = 0;
 	uint32 videoFrames = 0;
@@ -230,16 +339,18 @@ void probeForNumberOfFrames(VideoFile *vfile)
 
 			if(ret > 0)
 			{
-				vfile->dataBuffer.data[totalFrames].packet = av_packet_clone(&packet);
-				vfile->dataBuffer.data[totalFrames].picType = frame->pict_type;
+				vfile->dataBuffer[totalFrames].packet = av_packet_clone(&packet);
+				vfile->dataBuffer[totalFrames].picType = frame->pict_type;
 				if(frame->key_frame == 1)
 				{
-					vfile->dataBuffer.data[totalFrames].keyframe = true;
+					vfile->dataBuffer[totalFrames].iskeyframe = true;
+					vfile->keyframeList[vfile->nkeyframes] = totalFrames;
 					vfile->nkeyframes++;
 				}
-				vfile->dataBuffer.data[totalFrames].pts = frame->pkt_pts;
-				vfile->dataBuffer.data[totalFrames].dts = frame->pkt_dts;	
+				vfile->dataBuffer[totalFrames].pts = packet.pts;
+				vfile->dataBuffer[totalFrames].dts = packet.dts;	
 				totalFrames++;
+				assert(totalFrames < estimatedFrames);
 			}
 
 			if(frameFinished)
@@ -259,8 +370,24 @@ void probeForNumberOfFrames(VideoFile *vfile)
 	avcodec_close(codecCtx);
 	avcodec_close(codecCtxOrig);
 
-	vfile->totalFrames = totalFrames;
-	vfile->videoFrames = videoFrames;
+	vfile->ntotalFrames = totalFrames;
+	vfile->nvideoFrames = videoFrames;
+
+#if 1
+	for(int i = 0; i < vfile->ntotalFrames; ++i)
+	{
+		
+		AVPictureType picType = vfile->dataBuffer[i].picType;
+		bool iskeyframe = vfile->dataBuffer[i].iskeyframe;
+		int64 pts = vfile->dataBuffer[i].pts;
+		int64 dts = vfile->dataBuffer[i].dts;
+
+		printf("%d : PT: ", i);
+		printAVPictureType(picType);
+		printf(", KEY?: %s, PTS: %d, DTS: %d\n", 
+		       (iskeyframe ? "TRUE" : "FALSE"), pts, dts);
+	}
+#endif
 }
 
 void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer, int number)
@@ -309,11 +436,13 @@ void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer, 
 	                                  clip->vfile->width, clip->vfile->height);
 
 	clip->beginFrame = 0;
-	if(clip->vfile->videoFrames = 0) clip->endFrame = clip->vfile->totalFrames; // HACK
-	else clip->endFrame = clip->vfile->totalFrames; // HACK
+	// This is pretty hacky. We do this because if the file is just raw, uncompressed frames
+	// then they will not be picked up by the decoder as a full frame (for some reason).
+	// But they will cound as a decoded frame so we just use the total frames.
+	if(clip->vfile->nvideoFrames == 0) clip->endFrame = clip->vfile->ntotalFrames; // HACK
+	else clip->endFrame = clip->vfile->nvideoFrames; // HACK
 
-	// decodeNextVideoFrame(clip);
-	playClipAtIndex(clip, 0);
+	// seekToClipAtIndex(clip, 0);
 
 	clip->number = number;
 }
@@ -357,7 +486,8 @@ void loadVideoFile(VideoFile *vfile, SDL_Renderer *renderer, const char *filenam
 
 	avcodec_open2(vfile->codecCtx, vfile->codec, NULL);
 
-	vfile->codecCtx->thread_count = 12; // WARNING : Set to number of cores or this will crash
+	AVRational tb = vfile->codecCtx->time_base;
+	vfile->timeBase = ((int64)tb.num * AV_TIME_BASE) / (int64)tb.den;
 
 	// Use the video stream to get the real base framerate and average framerates
 	vfile->stream = vfile->formatCtx->streams[vfile->streamIndex];
@@ -406,14 +536,15 @@ void printVideoFileInfo(VideoFile vfile)
 	printf("Video bitrate: ");
 	if (vfile.formatCtx->bit_rate) printf("%d kb/s\n", (int64)vfile.formatCtx->bit_rate / 1000);
 	else printf("N/A\n");
+	printf("Timebase: %d\n", vfile.timeBase);
 	printf("Real based framerate: %.2f fps\n", vfile.framerate);
 	printf("Milliseconds per frame: %.4f ms\n", vfile.msperframe);
 	printf("Average framerate: %.2f fps\n", vfile.avgFramerate);
 	printf("Width/Height: %dx%d\n", vfile.width, vfile.height);
 	printf("Aspect Ratio: (%.2f), [%d:%d]\n", vfile.arF, vfile.arW, vfile.arH);
-	printf("Video frames: %d\n", vfile.videoFrames);
+	printf("Video frames: %d\n", vfile.nvideoFrames);
 	printf("Keyframes: %d\n", vfile.nkeyframes);
-	printf("Total frames: %d\n", vfile.totalFrames);
+	printf("Total frames: %d\n", vfile.ntotalFrames);
 	printf("> VIDEO FILE\n");
 	printf("\n");
 }

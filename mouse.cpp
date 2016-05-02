@@ -98,6 +98,7 @@ global SDL_Renderer *Global_renderer;
 
 global int  Global_mousex = 0, Global_mousey = 0;
 global bool Global_mousedown = false;
+global bool Global_drawClipBoundRect = true;
 
 global SDL_AudioDeviceID Global_AudioDeviceID = {};
 global SDL_AudioSpec Global_AudioSpec = {};
@@ -135,7 +136,8 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					if(!Global_paused) Global_paused = true;
 					if(Global_playIndex < Global_videoClip.endFrame)
 					{
-						playClipAtIndex(&Global_videoClip, ++Global_playIndex);
+						// seekToClipAtIndex(&Global_videoClip, ++Global_playIndex);
+						seekToNextFrame(&Global_videoClip, ++Global_playIndex);
 					}
 				} break;
 				case SDLK_LEFT:
@@ -144,9 +146,15 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					#if 1
 					if(Global_playIndex > 0)
 					{
-						playClipAtIndex(&Global_videoClip, --Global_playIndex);
+						// seekToClipAtIndex(&Global_videoClip, --Global_playIndex);
+					  seekToPrevFrame(&Global_videoClip, --Global_playIndex);
 					}
 					#endif
+				} break;
+				case SDLK_r:
+				{
+					if(!Global_drawClipBoundRect) Global_drawClipBoundRect =  true;
+					else Global_drawClipBoundRect = false;
 				} break;
 			}
 		}
@@ -198,7 +206,7 @@ int main(int argc, char **argv)
 
 	// Global_AudioDeviceID = initAudioDevice(Global_AudioSpec); WARNING XXX FIXME Breaks SDL_Quit
 
-	loadVideoFile(&Global_videoFile, Global_renderer, kiloshelos); // TEST XXX
+	loadVideoFile(&Global_videoFile, Global_renderer, anime404mp4); // TEST XXX
 	printVideoFileInfo(Global_videoFile);
 	createVideoClip(&Global_videoClip, &Global_videoFile, Global_renderer, Global_clipNumbers++);
 	printVideoClipInfo(Global_videoClip);
@@ -206,7 +214,6 @@ int main(int argc, char **argv)
 	if(!(SDL_GetWindowFlags(Global_window) & SDL_WINDOW_MAXIMIZED))
 		layoutWindowElements(Global_window, &Global_views, &Global_videoClip);
 
-	Global_paused = false; // DEBUG
 	SDL_SetRenderDrawBlendMode(Global_renderer, SDL_BLENDMODE_BLEND);
 
 	float ticksElapsed = 0.0f;
@@ -239,9 +246,15 @@ int main(int argc, char **argv)
 			{
 				if(Global_playIndex < Global_videoClip.endFrame)
 				{
-					decodeFramesInSuccession(&Global_videoClip);
+					printf("Play index: %d\n", Global_playIndex);
+					decodeSingleFrame(&Global_videoClip);
 					updateVideoClipTexture(&Global_videoClip);
 					Global_playIndex++;
+				}
+				else
+				{
+					// Global_playIndex = 0; // LOOP?
+					Global_paused = true;
 				}
 				ticksElapsed = 0;
 			}
@@ -251,6 +264,11 @@ int main(int argc, char **argv)
 
 		SDL_RenderCopy(Global_renderer, Global_videoClip.texture, NULL, 
 		               (SDL_Rect *)&Global_videoClip.videoRect);
+
+		if(Global_drawClipBoundRect)
+		{
+			drawClipBoundRect(Global_renderer, Global_videoClip, tcRed, 5);
+		}
 
 		SDL_RenderPresent(Global_renderer);
 	}

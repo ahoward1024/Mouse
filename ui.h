@@ -15,8 +15,8 @@ struct ViewRects
 	SDL_Rect timeline;
 };
 
-inline float _max_(float a, float b) { return a > b ? a : b ; }
-inline float _min_(float a, float b) { return a < b ? a : b ; }
+inline float fmax(float a, float b) { return a > b ? a : b ; }
+inline float fmin(float a, float b) { return a < b ? a : b ; }
 
 void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip)
 {
@@ -29,24 +29,37 @@ void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip)
 	// printf("Window: %d %d\n", windowWidth, windowHeight); // DEBUG
 
 	// BACKGROUND
-	float scale = _min_(((float)windowWidth-20)/(float)views->width, 
-	              ((float)windowHeight-20)/(float)views->height);
-	views->background.w = views->width * scale;
-	views->background.h = views->height * scale;
+	if(views->width >= windowWidth || views->height >= windowHeight)
+	{
+		float scale = fmin((float)(windowWidth - 20) / (float)views->width,
+		                   (float)(windowHeight - 20) / (float)views->height);
+		views->background.w = views->width * scale;
+		views->background.h = views->height * scale;
 
-	views->background.x = (windowWidth / 2) - (views->background.w / 2);
-	views->background.y = (windowHeight / 2) - (views->background.h / 2);
+		views->background.x = (windowWidth / 2) - (views->background.w / 2);
+		views->background.y = (windowHeight / 2) - (views->background.h / 2);
+	}
+	else
+	{
+		views->background.w = views->width;
+		views->background.h = views->height;
+
+		views->background.x = (windowWidth / 2) - (views->background.w / 2);
+		views->background.y = (windowHeight / 2) - (views->background.h / 2);
+	}
 
 	// printRectangle(views->background, "Background"); // DEBUG
 
 	// CLIP
-	scale = _min_(((float)views->background.w)/(float)clip->width, 
-	              ((float)views->background.h)/(float)clip->height);
-	clip->videoRect.w = clip->width * scale;
-	clip->videoRect.h = clip->height * scale;
-	
-	clip->videoRect.x = views->background.x + ((views->background.w - clip->videoRect.w) / 2);
-	clip->videoRect.y = views->background.y + ((views->background.h - clip->videoRect.h) / 2);
+	{
+		float scale = fmin((float)views->background.w / (float)clip->width,
+		                   (float)views->background.h / (float)clip->height);
+		clip->videoRect.w = clip->width * scale;
+		clip->videoRect.h = clip->height * scale;
+
+		clip->videoRect.x = views->background.x + ((views->background.w - clip->videoRect.w) / 2);
+		clip->videoRect.y = views->background.y + ((views->background.h - clip->videoRect.h) / 2);
+	}
 
 	// printRectangle(clip->videoRect, "Clip"); // DEBUG
 
@@ -75,6 +88,23 @@ void setRenderColorAlpha(SDL_Renderer *r, tColor c, uint8 alpha)
 void setRenderColor(SDL_Renderer *r, tColor c)
 {
 	SDL_SetRenderDrawColor(r, c.r, c.b, c.g, c.a);
+}
+
+void drawClipBoundRect(SDL_Renderer *renderer, VideoClip clip, tColor c, int thickness)
+{
+	SDL_Rect r = clip.videoRect;
+
+	setRenderColor(renderer, c);
+
+	for(int i = 0; i < thickness; i++)
+	{
+		r.x -= 1;
+		r.y -= 1;
+		r.w += 2;
+		r.h += 2;
+
+		SDL_RenderDrawRect(renderer, &r);
+	}
 }
 
 #endif
