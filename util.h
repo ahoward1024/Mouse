@@ -3,16 +3,16 @@
 
 #include "datatypes.h"
 
-void printAVPictureType(AVPictureType picType)
+const char * avpictypeChar(AVPictureType picType)
 {
-	if(picType == AV_PICTURE_TYPE_I) printf("I");
-	else if(picType == AV_PICTURE_TYPE_P) printf("P");
-	else if(picType == AV_PICTURE_TYPE_B) printf("B");
-	else if(picType == AV_PICTURE_TYPE_S) printf("S");
-	else if(picType == AV_PICTURE_TYPE_SI) printf("SI");
-	else if(picType == AV_PICTURE_TYPE_SP) printf("SP");
-	else if(picType == AV_PICTURE_TYPE_BI) printf("BI");
-	else printf("NONE");
+	if(picType == AV_PICTURE_TYPE_I) return ("I");
+	else if(picType == AV_PICTURE_TYPE_P) return ("P");
+	else if(picType == AV_PICTURE_TYPE_B) return ("B");
+	else if(picType == AV_PICTURE_TYPE_S) return ("S");
+	else if(picType == AV_PICTURE_TYPE_SI) return ("SI");
+	else if(picType == AV_PICTURE_TYPE_SP) return ("SP");
+	else if(picType == AV_PICTURE_TYPE_BI) return ("BI");
+	else return ("NONE");
 }
 
 void printRectangle(SDL_Rect r, const char *name)
