@@ -67,6 +67,7 @@ const char *pm4 =  "H:\\Fraps\\Movies\\MISC\\pm4 - 2.avi";
 // TEST VIDEO FILES
 global const char *anime404mp4    = "../res/video/Anime404.mp4";
 global const char *anime404webm   = "../res/video/Anime404.webm";
+global const char *anime404AME   = "../res/video/Anime404_AME.mp4";
 global const char *a404test       = "../res/video/a404test.mp4";
 global const char *dance          = "../res/video/dance.mp4";
 global const char *froggy         = "../res/video/froggy.gif";
@@ -137,8 +138,13 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					if(!Global_paused) Global_paused = true;
 					if(Global_playIndex < Global_videoClip.endFrame)
 					{
-						int index = Global_playIndex + 1;
-						if(seekToFrame(&Global_videoClip, index, Global_playIndex)) ++Global_playIndex;
+							int index = Global_playIndex + 1;
+							bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
+						  if(result)
+						  {
+						  	++Global_playIndex;
+						  	printf("Play index: %d\n", Global_playIndex);
+						  } 
 					}
 					else
 					{
@@ -152,7 +158,12 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					if(Global_playIndex > 0)
 					{
 						int index = Global_playIndex - 1;
-					  if(seekToFrame(&Global_videoClip, index, Global_playIndex)) --Global_playIndex;
+						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
+					  if(result)
+					  {
+							printf("Play index: %d\n", Global_playIndex);
+							--Global_playIndex;
+					  }
 					}
 					else
 					{
@@ -215,7 +226,7 @@ int main(int argc, char **argv)
 
 	// Global_AudioDeviceID = initAudioDevice(Global_AudioSpec); WARNING XXX FIXME Breaks SDL_Quit
 
-	loadVideoFile(&Global_videoFile, Global_renderer, a404test); // TEST XXX
+	loadVideoFile(&Global_videoFile, Global_renderer, anime404mp4); // TEST XXX
 	printVideoFileInfo(Global_videoFile);
 	createVideoClip(&Global_videoClip, &Global_videoFile, Global_renderer, Global_clipNumbers++);
 	printVideoClipInfo(Global_videoClip);
@@ -256,13 +267,12 @@ int main(int argc, char **argv)
 				if(Global_playIndex < Global_videoClip.endFrame)
 				{
 					printf("Play index: %d\n", Global_playIndex);
-					nextFullFrame(&Global_videoClip);
+					decodeSingleFrame(&Global_videoClip);
 					updateVideoClipTexture(&Global_videoClip);
 					Global_playIndex++;
 				}
 				else
 				{
-					// Global_playIndex = 0; // LOOP?
 					Global_paused = true;
 				}
 				ticksElapsed = 0;
