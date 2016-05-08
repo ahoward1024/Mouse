@@ -31,7 +31,6 @@ extern "C"
 #include "video.h"
 #include "audio.h"
 
-#define MAX_AUDIO_FRAME_SIZE 192000 // 1 second of 48khz 32bit audio
 
 struct AVClip
 {
@@ -53,45 +52,31 @@ global VideoClip Global_videoClip = {};
 global const char *testraw  = "../res/video/test/testraw.avi";
 global const char *testmp4  = "../res/video/test/testx264.mp4";
 global const char *testavi  = "../res/video/test/testx264.avi";
-global const char *testwebm = "../res/video/test/testxvp9.webm";
 
 // Exactly 240 black frames at 60 fps
 const char *black240raw  = "../res/video/test/black240raw.avi";
 const char *black240avi  = "../res/video/test/black240x264.avi";
 const char *black240mp4  = "../res/video/test/black240x264.mp4";
-const char *black240webm = "../res/video/test/black240vp9.webm";
 
 // TEST LONG FILE (WARNING: ONLY ON QUASAR)
 const char *pm4 =  "H:\\Fraps\\Movies\\MISC\\pm4 - 2.avi";
 
 // TEST VIDEO FILES
-global const char *anime404mp4    = "../res/video/Anime404.mp4";
-global const char *anime404webm   = "../res/video/Anime404.webm";
-global const char *anime404AME   = "../res/video/Anime404_AME.mp4";
+global const char *anime404       = "../res/video/Anime404.mp4";
 global const char *a404test       = "../res/video/a404test.mp4";
 global const char *dance          = "../res/video/dance.mp4";
-global const char *froggy         = "../res/video/froggy.gif";
-global const char *groggy         = "../res/video/groggy.gif";
-global const char *h2bmkv         = "../res/video/h2b.mkv"; // NOTE: This file is broken
-global const char *h2bmp4         = "../res/video/h2b.mp4";
-global const char *kiloshelos     = "../res/video/kiloshelos.mp4";
-global const char *nevercomedown  = "../res/video/nevercomedown.mkv";
 global const char *nggyu          = "../res/video/nggyu.mp4";
-global const char *trump          = "../res/video/trump.webm";
-global const char *trumpncd       = "../res/video/trump-nevercomedown.webm";
-global const char *vapor          = "../res/video/vapor.webm";
-global const char *watamote       = "../res/video/watamote.webm";
-
+global const char *vapor          = "../res/video/vapor.mp4";
+global const char *watamote       = "../res/video/watamote.mp4";
 // TEST AUDIO FILES
-global const char *intoxicated    = "../res/audio/Intoxicated.mp3";
-global const char *ncdmp3         = "../res/audio/nevercomedown.mp3";
-global const char *ringmp3        = "../res/audio/Ring.mp3";
+global const char *nevercomedown  = "../res/audio/nevercomedown.mp3";
 global const char *ruskie         = "../res/audio/ruskie.webm";
-global const char *someonenew     = "../res/audio/Someone New.mp3";
-global const char *switchfriends  = "../res/audio/Switch Friends.wav";
+global const char *someonenew     = "../res/audio/someonenew.mp3";
+global const char *switchfriends  = "../res/audio/switchfriends.wav";
 
 global bool Global_running = true;
-global bool Global_paused = false;
+global bool Global_paused = true;
+global bool Global_flush = false;
 global int  Global_playIndex = 0;
 global int  Global_clipNumbers = 0;
 
@@ -104,6 +89,18 @@ global bool Global_drawClipBoundRect = true;
 
 global SDL_AudioDeviceID Global_AudioDeviceID = {};
 global SDL_AudioSpec Global_AudioSpec = {};
+
+static void newClip(const char *name)
+{
+	Global_playIndex = 0;
+	freeVideoClip(&Global_videoClip);
+	freeVideoFile(&Global_videoFile);
+	loadVideoFile(&Global_videoFile, Global_renderer, name);
+	printVideoFileInfo(Global_videoFile);
+	createVideoClip(&Global_videoClip, &Global_videoFile, Global_renderer, Global_clipNumbers++);
+	printVideoClipInfo(Global_videoClip);
+	layoutWindowElements(Global_window, &Global_views, &Global_videoClip, Global_playIndex);
+}
 
 // NOTE: As of this point, refreshing all window elements is actually fast enough when updating the
 // clips. This is not really a problem right now as the code to do this is really only for testing.
@@ -134,17 +131,19 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					else Global_paused = false;
 				} break;
 				case SDLK_RIGHT:
+				case SDLK_f:
 				{
 					if(!Global_paused) Global_paused = true;
-					if(Global_playIndex < Global_videoClip.endFrame)
+					int index = Global_playIndex + 1;
+					if(index <= Global_videoClip.endFrame)
 					{
-							int index = Global_playIndex + 1;
-							bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
-						  if(result)
-						  {
-						  	++Global_playIndex;
-						  	printf("Play index: %d\n", Global_playIndex);
-						  } 
+						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
+						if(result)
+						{
+							++Global_playIndex;
+							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+							printf("Play index: %d\n", Global_playIndex);
+						} 
 					}
 					else
 					{
@@ -152,26 +151,170 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					}
 				} break;
 				case SDLK_LEFT:
+				case SDLK_d:
 				{
 					if(!Global_paused) Global_paused = true;
-					#if 1
-					if(Global_playIndex > 0)
+					int index = Global_playIndex - 1;
+					if(index >= 0)
 					{
-						int index = Global_playIndex - 1;
 						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
-					  if(result)
-					  {
-							printf("Play index: %d\n", Global_playIndex);
+						if(result)
+						{
 							--Global_playIndex;
-					  }
+							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+							printf("Play index: %d\n", Global_playIndex);
+						}
 					}
 					else
 					{
 						printf("\nBeginning of video\n\n");
 					}
-					#endif
 				} break;
 				case SDLK_r:
+				case SDLK_UP:
+				{
+					if(!Global_paused) Global_paused = true;
+					int index = Global_playIndex + 10;
+					if(index < Global_videoClip.endFrame - 10)
+					{
+						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
+						if(result)
+						{
+							Global_playIndex += 10;
+							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+							printf("Play index: %d\n", Global_playIndex);
+						}
+					}
+					else
+					{
+						bool result = seekToAnyFrame(&Global_videoClip, Global_videoClip.endFrame, 
+						                             Global_playIndex);
+						if(result)
+						{
+							Global_playIndex = Global_videoClip.endFrame;
+							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+							printf("Play index: %d\n", Global_playIndex);
+						}
+					}
+				} break;
+				case SDLK_e:
+				case SDLK_DOWN:
+				{
+					if(!Global_paused) Global_paused = true;
+					int index = Global_playIndex - 10;
+					if(Global_playIndex > 10)
+					{
+						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
+						if(result)
+						{
+							Global_playIndex -= 10;
+							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+							printf("Play index: %d\n", Global_playIndex);
+						}
+					}
+					else
+					{
+						bool result = seekToAnyFrame(&Global_videoClip, 0, Global_playIndex);
+						if(result)
+						{
+							Global_playIndex = 0;
+							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+							printf("Play index: %d\n", Global_playIndex);
+						}
+					}
+				} break;
+				case SDLK_HOME:
+				{
+					if(!Global_paused) Global_paused = true;
+					bool result = seekToAnyFrame(&Global_videoClip, 0, Global_playIndex);
+					if(result)
+					{
+						Global_playIndex = 0;
+						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+						printf("Play index: %d\n", Global_playIndex);
+					}
+				} break;
+				case SDLK_END:
+				{
+					if(!Global_paused) Global_paused = true;
+					bool result = seekToAnyFrame(&Global_videoClip, 
+					                             Global_videoClip.endFrame, Global_playIndex);
+					if(result)
+					{
+						Global_playIndex = Global_videoClip.endFrame;
+						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+						printf("Play index: %d\n", Global_playIndex);
+					}
+				} break;
+				case SDLK_0:
+				{
+					newClip(switchfriends);
+				} break;
+				case SDLK_1:
+				{
+					newClip(anime404);
+				} break;
+				case SDLK_2:
+				{
+					newClip(a404test);
+				} break;
+				case SDLK_3:
+				{
+					newClip(nggyu);
+				} break;
+				case SDLK_4:
+				{
+					newClip(dance);
+				} break;
+				case SDLK_5:
+				{
+					newClip(vapor);
+				} break;
+				case SDLK_6:
+				{
+					newClip(watamote);
+				} break;
+				case SDLK_7: // TODO(alex): Audio
+				{
+					// newClip(nevercomedown);
+				} break;
+				case SDLK_8:
+				{
+					// newClip(ruskie);
+				} break;
+				case SDLK_9:
+				{
+					// newClip(someonenew);
+				} break;
+				case SDLK_F1:
+				{
+					newClip(testraw);
+				} break;
+				case SDLK_F2:
+				{
+					newClip(testmp4);
+				} break;
+				case SDLK_F3:
+				{
+					newClip(testavi);
+				} break;
+				case SDLK_F4:
+				{
+					newClip(black240raw);
+				} break;
+				case SDLK_F5:
+				{
+					newClip(black240avi);
+				} break;
+				case SDLK_F6:
+				{
+					newClip(black240mp4);
+				} break;
+				case SDLK_F7:
+				{
+					newClip(pm4); // WARNING!!! LARGE FILE ONLY ON QUASAR
+				} break;
+				case SDLK_b:
 				{
 					if(!Global_drawClipBoundRect) Global_drawClipBoundRect =  true;
 					else Global_drawClipBoundRect = false;
@@ -184,7 +327,7 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 			{
 				case SDL_WINDOWEVENT_RESIZED:
 				{
-					layoutWindowElements(Global_window, &Global_views, &Global_videoClip);
+					layoutWindowElements(Global_window, &Global_views, &Global_videoClip, Global_playIndex);
 				} break;
 				case SDL_WINDOWEVENT_FOCUS_LOST:
 				{
@@ -222,19 +365,23 @@ int main(int argc, char **argv)
 
 	const char *fname;
 	if(argv[1]) fname = argv[1];
-	else fname = nggyu; // DEBUG FILENAME
+	else fname = a404test; // // TEST XXX DEBUG
 
 	// Global_AudioDeviceID = initAudioDevice(Global_AudioSpec); WARNING XXX FIXME Breaks SDL_Quit
 
-	loadVideoFile(&Global_videoFile, Global_renderer, anime404mp4); // TEST XXX
+	loadVideoFile(&Global_videoFile, Global_renderer, fname); 
 	printVideoFileInfo(Global_videoFile);
 	createVideoClip(&Global_videoClip, &Global_videoFile, Global_renderer, Global_clipNumbers++);
 	printVideoClipInfo(Global_videoClip);
 
+	// Refresh the window layout if SDL is set to maximize. We do this check so we don't have to do
+	// the expense of recalculating all of the window stuff if SDL is not set to maximize.
+	// Also, SDL will open a window at the default specified resolution and _THEN_ maximize the window
+	// So we have to do this if the maximize flag is enabled.
 	if(!(SDL_GetWindowFlags(Global_window) & SDL_WINDOW_MAXIMIZED))
-		layoutWindowElements(Global_window, &Global_views, &Global_videoClip);
+		layoutWindowElements(Global_window, &Global_views, &Global_videoClip, Global_playIndex);
 
-	SDL_SetRenderDrawBlendMode(Global_renderer, SDL_BLENDMODE_BLEND);
+	// SDL_SetRenderDrawBlendMode(Global_renderer, SDL_BLENDMODE_BLEND);
 
 	float ticksElapsed = 0.0f;
 	int startTicks = SDL_GetTicks();
@@ -264,16 +411,31 @@ int main(int argc, char **argv)
 			if(ticksElapsed >= 
 			   (Global_videoClip.vfile->msperframe - (Global_videoClip.vfile->msperframe * 0.05f)))
 			{
-				if(Global_playIndex < Global_videoClip.endFrame)
+				printf("Play index: %d\n", Global_playIndex);
+
+				if(!Global_flush)
 				{
-					printf("Play index: %d\n", Global_playIndex);
-					decodeSingleFrame(&Global_videoClip);
-					updateVideoClipTexture(&Global_videoClip);
-					Global_playIndex++;
+					int res = decodeSingleFrame(&Global_videoClip);
+					printf("res: %d\n", res);
+					if(res > 0)
+					{
+						updateVideoClipTexture(&Global_videoClip);
+						Global_playIndex++;
+						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+					}
+					else
+					{
+						Global_flush = true;
+					}
 				}
 				else
 				{
+					printf("Play index before: %d\n", Global_playIndex);
+					flushPlayEnd(&Global_videoClip, &Global_playIndex);
+					printf("Play index after: %d\n", Global_playIndex);
+					setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
 					Global_paused = true;
+					Global_flush = false;
 				}
 				ticksElapsed = 0;
 			}
@@ -284,9 +446,15 @@ int main(int argc, char **argv)
 		SDL_RenderCopy(Global_renderer, Global_videoClip.texture, NULL, 
 		               (SDL_Rect *)&Global_videoClip.videoRect);
 
+		setRenderColor(Global_renderer, tcView);
+		SDL_RenderFillRect(Global_renderer, &Global_videoClip.tlRect);
+
+		setRenderColor(Global_renderer, tcRed);
+		SDL_RenderFillRect(Global_renderer, &Global_views.scrubber);
+
 		if(Global_drawClipBoundRect)
 		{
-			drawClipBoundRect(Global_renderer, Global_videoClip, tcRed, 5);
+			// drawClipBoundRect(Global_renderer, Global_videoClip, tcRed, 5); // DEBUG
 		}
 
 		SDL_RenderPresent(Global_renderer);

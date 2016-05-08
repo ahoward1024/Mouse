@@ -1,5 +1,8 @@
 #ifndef AUIDO_H
 #define AUDIO_H
+
+#define MAX_AUDIO_FRAME_SIZE 192000 // 1 second of 48khz 32bit audio
+
 struct AudioClip
 {
 	// TODO: Create audio only clips

@@ -13,15 +13,29 @@ struct ViewRects
 	// END
 	SDL_Rect background;
 	SDL_Rect timeline;
+	SDL_Rect scrubber = { 0, 0, 2, 14 };
 };
 
 inline float fmax(float a, float b) { return a > b ? a : b ; }
 inline float fmin(float a, float b) { return a < b ? a : b ; }
 
-void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip)
+void setScrubberXPosition(VideoClip clip, ViewRects *views, int currentTime)
+{
+	if(currentTime > 0)
+	{
+		float percent = (clip.endFrame / (float)currentTime);
+		views->scrubber.x = clip.tlRect.x + ((float)clip.tlRect.w / percent);
+	}
+	else
+	{
+		views->scrubber.x = clip.tlRect.x;
+	}
+}
+
+void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip, int currentTime)
 {
 	// printf("RESIZING ELEMENTS\n"); // DEBUG
-	const int bufferSpace = 10;
+	const int padding = 20;
 
 	int windowWidth, windowHeight, videoW, videoH;
 
@@ -31,8 +45,8 @@ void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip)
 	// BACKGROUND
 	if(views->width >= windowWidth || views->height >= windowHeight)
 	{
-		float scale = fmin((float)(windowWidth - 20) / (float)views->width,
-		                   (float)(windowHeight - 20) / (float)views->height);
+		float scale = fmin((float)(windowWidth - padding) / (float)views->width,
+		                   (float)(windowHeight - padding) / (float)views->height);
 		views->background.w = views->width * scale;
 		views->background.h = views->height * scale;
 
@@ -52,16 +66,39 @@ void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip)
 
 	// CLIP
 	{
-		float scale = fmin((float)views->background.w / (float)clip->width,
+		if(clip->width > views->background.w || clip->height > views->background.h)
+		{
+			float scale = fmin((float)views->background.w / (float)clip->width,
 		                   (float)views->background.h / (float)clip->height);
-		clip->videoRect.w = clip->width * scale;
-		clip->videoRect.h = clip->height * scale;
+			clip->videoRect.w = clip->width * scale;
+			clip->videoRect.h = clip->height * scale;
+		}
+		else
+		{
+			clip->videoRect.w = clip->width;
+			clip->videoRect.h = clip->height;
+		}
 
 		clip->videoRect.x = views->background.x + ((views->background.w - clip->videoRect.w) / 2);
 		clip->videoRect.y = views->background.y + ((views->background.h - clip->videoRect.h) / 2);
 	}
 
 	// printRectangle(clip->videoRect, "Clip"); // DEBUG
+
+	// CLIP TL RECT
+	{
+		clip->tlRect.x = views->background.x;
+		clip->tlRect.y = views->background.y + views->background.h + (clip->tlRect.h * 2);
+		clip->tlRect.w = views->background.w;
+		clip->tlRect.h = 20; // TODO(alex): This is hardcoded for now, change this dynamically.
+	}
+
+	// SCRUBBER
+	{
+		setScrubberXPosition(*clip, views, currentTime);
+		views->scrubber.h = clip->tlRect.h + 4;
+		views->scrubber.y = clip->tlRect.y - 2;
+	}
 
 	// TIMELINE
 	// Put the timeline clip view in the bottom part of the screen under the video
