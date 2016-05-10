@@ -383,6 +383,21 @@ int main(int argc, char **argv)
 
 	// SDL_SetRenderDrawBlendMode(Global_renderer, SDL_BLENDMODE_BLEND);
 
+	TTF_Init();
+
+	if(!TTF_WasInit())
+	{
+		printf("Could not initalize TTF library!\nExiting.\n");
+		return -1;
+	}
+
+	TTF_Font *fontAnaheimRegular24 = TTF_OpenFont("../res/fonts/Anaheim-Regular.ttf", 24);
+	TTF_Font *fontAnaheimRegular32 = TTF_OpenFont("../res/fonts/Anaheim-Regular.ttf", 32);
+
+	SDL_Surface *playIndexSurface;
+	SDL_Surface *filenameSurface;
+	SDL_Surface *ticksElapsedSurface;
+
 	float ticksElapsed = 0.0f;
 	int startTicks = SDL_GetTicks();
 	while(Global_running)
@@ -411,37 +426,77 @@ int main(int argc, char **argv)
 			if(ticksElapsed >= 
 			   (Global_videoClip.vfile->msperframe - (Global_videoClip.vfile->msperframe * 0.05f)))
 			{
-				printf("Play index: %d\n", Global_playIndex);
-
-				if(!Global_flush)
+				int res = decodeSingleFrame(&Global_videoClip);
+				if(res > 0)
 				{
-					int res = decodeSingleFrame(&Global_videoClip);
-					printf("res: %d\n", res);
-					if(res > 0)
-					{
-						updateVideoClipTexture(&Global_videoClip);
-						Global_playIndex++;
-						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-					}
-					else
-					{
-						Global_flush = true;
-					}
+					updateVideoClipTexture(&Global_videoClip);
+					Global_playIndex++;
+					setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
 				}
 				else
 				{
-					printf("Play index before: %d\n", Global_playIndex);
-					flushPlayEnd(&Global_videoClip, &Global_playIndex);
-					printf("Play index after: %d\n", Global_playIndex);
-					setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-					Global_paused = true;
-					Global_flush = false;
+					Global_flush = true;
 				}
 				ticksElapsed = 0;
 			}
 		}
 		startTicks = SDL_GetTicks();
 		#endif
+
+		char ticksElapsedBuffer[32];
+		sprintf(ticksElapsedBuffer, "Ticks: %f", ticksElapsed);
+		if(ticksElapsedSurface = TTF_RenderText_Blended(fontAnaheimRegular24,
+		                                                ticksElapsedBuffer, SDLC_white))
+		{
+			SDL_Rect ticksElapsedRect;
+			ticksElapsedRect.w = ticksElapsedSurface->w;
+			ticksElapsedRect.h = ticksElapsedSurface->h;
+			ticksElapsedRect.x = Global_views.background.x + 
+				Global_views.background.w - ticksElapsedRect.w;
+			ticksElapsedRect.y = Global_views.background.y - ticksElapsedRect.h - 1;
+
+			SDL_Texture *ticksElapsedTexture = SDL_CreateTextureFromSurface(Global_renderer, 
+			                                                                ticksElapsedSurface);
+			SDL_RenderCopy(Global_renderer, ticksElapsedTexture, NULL, &ticksElapsedRect);
+			SDL_DestroyTexture(ticksElapsedTexture);
+			SDL_FreeSurface(ticksElapsedSurface);
+		}
+
+
+		if(filenameSurface = TTF_RenderText_Blended(fontAnaheimRegular32,
+		                                            Global_videoClip.vfile->formatCtx->filename, 
+		                                            SDLC_white));
+		{
+			SDL_Rect filenameRect;
+			filenameRect.w = filenameSurface->w;
+			filenameRect.h = filenameSurface->h;
+			filenameRect.x = Global_views.background.x;
+			filenameRect.y = Global_views.background.y - filenameRect.h - 2;
+
+			SDL_Texture *filenameTexture = SDL_CreateTextureFromSurface(Global_renderer, filenameSurface);
+			SDL_RenderCopy(Global_renderer, filenameTexture, NULL, &filenameRect);
+			SDL_DestroyTexture(filenameTexture);
+			SDL_FreeSurface(filenameSurface);
+		}
+
+		char playheadTextBuffer[32];
+		sprintf(playheadTextBuffer, "%d", Global_playIndex);
+		if(playIndexSurface = TTF_RenderText_Blended(fontAnaheimRegular24, 
+		                                             playheadTextBuffer, SDLC_white))
+		{
+			SDL_Rect playIndexRect;
+			playIndexRect.w = playIndexSurface->w;
+			playIndexRect.h = playIndexSurface->h;
+			playIndexRect.x = Global_views.scrubber.x - (playIndexRect.w / 2);
+			playIndexRect.y = Global_views.scrubber.y + Global_views.scrubber.h;
+
+			SDL_Texture *playIndexTexture = SDL_CreateTextureFromSurface(Global_renderer, 
+			                                                             playIndexSurface);
+			SDL_RenderCopy(Global_renderer, playIndexTexture, NULL, &playIndexRect);
+			SDL_DestroyTexture(playIndexTexture);
+			SDL_FreeSurface(playIndexSurface);
+		}
+
 
 		SDL_RenderCopy(Global_renderer, Global_videoClip.texture, NULL, 
 		               (SDL_Rect *)&Global_videoClip.videoRect);
@@ -462,6 +517,8 @@ int main(int argc, char **argv)
 
 	freeVideoClip(&Global_videoClip);
 	freeVideoFile(&Global_videoFile);
+
+	TTF_Quit();
 
 	//assert(Global_AudioDeviceID != 0);
 	//SDL_CloseAudioDevice(Global_AudioDeviceID);
