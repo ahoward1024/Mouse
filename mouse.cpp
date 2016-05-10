@@ -66,6 +66,7 @@ global const char *anime404       = "../res/video/Anime404.mp4";
 global const char *a404test       = "../res/video/a404test.mp4";
 global const char *dance          = "../res/video/dance.mp4";
 global const char *nggyu          = "../res/video/nggyu.mp4";
+global const char *nggyu2         = "../res/video/nggyu2.mp4";
 global const char *vapor          = "../res/video/vapor.mp4";
 global const char *watamote       = "../res/video/watamote.mp4";
 // TEST AUDIO FILES
@@ -365,7 +366,7 @@ int main(int argc, char **argv)
 
 	const char *fname;
 	if(argv[1]) fname = argv[1];
-	else fname = a404test; // // TEST XXX DEBUG
+	else fname = nggyu2; // // TEST XXX DEBUG
 
 	// Global_AudioDeviceID = initAudioDevice(Global_AudioSpec); WARNING XXX FIXME Breaks SDL_Quit
 
@@ -391,8 +392,11 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	TTF_Font *fontAnaheimRegular24 = TTF_OpenFont("../res/fonts/Anaheim-Regular.ttf", 24);
-	TTF_Font *fontAnaheimRegular32 = TTF_OpenFont("../res/fonts/Anaheim-Regular.ttf", 32);
+	TTF_Font *fontDroidSansMono24 = TTF_OpenFont("../res/fonts/DroidSansMono.ttf", 24);
+	TTF_Font *fontDroidSansMono32 = TTF_OpenFont("../res/fonts/DroidSansMono.ttf", 32);
+
+	printf("Inconsolata 24 : %s\n", TTF_FontFaceIsFixedWidth(fontDroidSansMono24) > 0 ? "TRUE" : "FALSE");
+	printf("Inconsolata 32 : %s\n", TTF_FontFaceIsFixedWidth(fontDroidSansMono32) > 0 ? "TRUE" : "FALSE");
 
 	SDL_Surface *playIndexSurface;
 	SDL_Surface *filenameSurface;
@@ -444,16 +448,19 @@ int main(int argc, char **argv)
 		#endif
 
 		char ticksElapsedBuffer[32];
-		sprintf(ticksElapsedBuffer, "Ticks: %f", ticksElapsed);
-		if(ticksElapsedSurface = TTF_RenderText_Blended(fontAnaheimRegular24,
+		if(ticksElapsed < 10.0f) sprintf(ticksElapsedBuffer, "Ticks:  %.4f", ticksElapsed);
+		else sprintf(ticksElapsedBuffer, "Ticks: %.4f", ticksElapsed);
+		if(ticksElapsedSurface = TTF_RenderText_Blended(fontDroidSansMono24,
 		                                                ticksElapsedBuffer, SDLC_white))
 		{
+			int w;
+			TTF_SizeText(fontDroidSansMono24, "Ticks: 00.0000", &w, NULL);
 			SDL_Rect ticksElapsedRect;
 			ticksElapsedRect.w = ticksElapsedSurface->w;
 			ticksElapsedRect.h = ticksElapsedSurface->h;
 			ticksElapsedRect.x = Global_views.background.x + 
-				Global_views.background.w - ticksElapsedRect.w;
-			ticksElapsedRect.y = Global_views.background.y - ticksElapsedRect.h - 1;
+				Global_views.background.w - w;
+			ticksElapsedRect.y = Global_views.background.y - ticksElapsedRect.h;
 
 			SDL_Texture *ticksElapsedTexture = SDL_CreateTextureFromSurface(Global_renderer, 
 			                                                                ticksElapsedSurface);
@@ -463,7 +470,7 @@ int main(int argc, char **argv)
 		}
 
 
-		if(filenameSurface = TTF_RenderText_Blended(fontAnaheimRegular32,
+		if(filenameSurface = TTF_RenderText_Blended(fontDroidSansMono32,
 		                                            Global_videoClip.vfile->formatCtx->filename, 
 		                                            SDLC_white));
 		{
@@ -481,7 +488,7 @@ int main(int argc, char **argv)
 
 		char playheadTextBuffer[32];
 		sprintf(playheadTextBuffer, "%d", Global_playIndex);
-		if(playIndexSurface = TTF_RenderText_Blended(fontAnaheimRegular24, 
+		if(playIndexSurface = TTF_RenderText_Blended(fontDroidSansMono24, 
 		                                             playheadTextBuffer, SDLC_white))
 		{
 			SDL_Rect playIndexRect;
@@ -517,6 +524,9 @@ int main(int argc, char **argv)
 
 	freeVideoClip(&Global_videoClip);
 	freeVideoFile(&Global_videoFile);
+
+	TTF_CloseFont(fontDroidSansMono24);
+	TTF_CloseFont(fontDroidSansMono32);
 
 	TTF_Quit();
 
