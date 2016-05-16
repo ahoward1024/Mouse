@@ -16,14 +16,42 @@ struct ViewRects
 	SDL_Rect scrubber = { 0, 0, 2, 14 };
 };
 
+struct Point
+{
+	int x;
+	int y;
+};
+
 inline float fmax(float a, float b) { return a > b ? a : b ; }
 inline float fmin(float a, float b) { return a < b ? a : b ; }
+
+void DrawText(SDL_Renderer *renderer, TTF_Font *font, int x, int y, const char *text, 
+              SDL_Color color)
+{
+	SDL_Surface *surface;
+	if(surface = (TTF_RenderText_Blended(font, text, color)))
+	{
+		SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+		if(texture)
+		{
+			SDL_Rect rect;
+			rect.x = x;
+			rect.y = y;
+			rect.w = surface->w;
+			rect.h = surface->h;
+
+			SDL_RenderCopy(renderer, texture, NULL, &rect);
+			SDL_DestroyTexture(texture);
+			SDL_FreeSurface(surface);
+		}
+	}
+}
 
 void setScrubberXPosition(VideoClip clip, ViewRects *views, int currentTime)
 {
 	if(currentTime > 0)
 	{
-		float percent = (clip.endFrame / (float)currentTime);
+		float percent = ((float)clip.endFrame / (float)currentTime);
 		views->scrubber.x = clip.tlRect.x + ((float)clip.tlRect.w / percent);
 	}
 	else
@@ -35,7 +63,7 @@ void setScrubberXPosition(VideoClip clip, ViewRects *views, int currentTime)
 void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip, int currentTime)
 {
 	// printf("RESIZING ELEMENTS\n"); // DEBUG
-	const int padding = 20;
+	const int padding = 200;
 
 	int windowWidth, windowHeight, videoW, videoH;
 
@@ -69,7 +97,7 @@ void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip,
 		if(clip->width > views->background.w || clip->height > views->background.h)
 		{
 			float scale = fmin((float)views->background.w / (float)clip->width,
-		                   (float)views->background.h / (float)clip->height);
+			                   (float)views->background.h / (float)clip->height);
 			clip->videoRect.w = clip->width * scale;
 			clip->videoRect.h = clip->height * scale;
 		}
@@ -100,12 +128,7 @@ void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip,
 		views->scrubber.y = clip->tlRect.y - 2;
 	}
 
-	// TIMELINE
-	// Put the timeline clip view in the bottom part of the screen under the video
-	//views->timeline.x = 10;
-	//views->timeline.y = views->background.h + 20;
-	//views->timeline.w = (windowWidth) - (10 * 2);
-	//views->timeline.h = (windowHeight - views->timeline.y) - 10;
+	printRectangle(clip->tlRect, "Clip TL rect");
 }
 
 void setVideoClipPosition(SDL_Window *window, VideoClip *clip, int x, int y)

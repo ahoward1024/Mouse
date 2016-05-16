@@ -55,6 +55,7 @@ struct VideoClip
 	int           beginFrame;
 	int           endFrame;
 	int           number;
+	const char   *filename;
 };
 
 int ptsCompare(const void * a, const void * b)
@@ -101,7 +102,7 @@ void updateVideoClipTexture(VideoClip *clip)
 
 inline void flushPlayEnd(VideoClip *clip, int *currentTime)
 {
-	printf("Flushing with index.\n");
+	// printf("Flushing with index.\n"); // DEBUG
 	if(clip->vfile->codec->capabilities & AV_CODEC_CAP_DELAY)
 	{
 		AVPacket packet;
@@ -113,10 +114,8 @@ inline void flushPlayEnd(VideoClip *clip, int *currentTime)
 		while((result = avcodec_decode_video2(clip->vfile->codecCtx, clip->frame,
 		                                      &gotFrame, &packet)) >= 0 && gotFrame);
 		{
-			printf("Res: %d\n", result);
 			if(gotFrame)
 			{
-				printf("Got frame\n");
 				updateVideoClipTexture(clip);
 				++currentTime;
 			}
@@ -127,7 +126,7 @@ inline void flushPlayEnd(VideoClip *clip, int *currentTime)
 
 inline void flushClipEnd(VideoClip *clip)
 {
-	printf("Flushing clip only.\n");
+	// printf("Flushing clip only.\n"); // DEBUG
 	if(clip->vfile->codec->capabilities & AV_CODEC_CAP_DELAY)
 	{
 		AVPacket packet;
@@ -438,6 +437,8 @@ void createVideoClip(VideoClip *clip, VideoFile *vfile, SDL_Renderer *renderer, 
 	updateVideoClipTexture(clip);
 
 	clip->number = number;
+
+	clip->filename = av_strdup(clip->vfile->formatCtx->filename);
 }
 
 void loadVideoFile(VideoFile *vfile, SDL_Renderer *renderer, const char *filename)

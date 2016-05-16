@@ -31,11 +31,7 @@ extern "C"
 #include "video.h"
 #include "audio.h"
 
-
-struct AVClip
-{
-	// TODO: Create audio and video clips
-};
+#include "testvideos.h"
 
 global int Global_screenWidth = 1920;
 global int Global_screenHeight = 1080;
@@ -45,35 +41,6 @@ global ViewRects Global_views = {};
 
 global VideoFile Global_videoFile = {};
 global VideoClip Global_videoClip = {};
-
-// TEST VIDEO: 1 frame of RED, 2 frames of BLUE, 2 frames of GREEN, 1 frame of YELLOW
-// 6 frames total, at 60 fps
-// NOTE: testavi is UNCOMPRESSED!! testmp4 is compressed with the x264 codec
-global const char *testraw  = "../res/video/test/testraw.avi";
-global const char *testmp4  = "../res/video/test/testx264.mp4";
-global const char *testavi  = "../res/video/test/testx264.avi";
-
-// Exactly 240 black frames at 60 fps
-const char *black240raw  = "../res/video/test/black240raw.avi";
-const char *black240avi  = "../res/video/test/black240x264.avi";
-const char *black240mp4  = "../res/video/test/black240x264.mp4";
-
-// TEST LONG FILE (WARNING: ONLY ON QUASAR)
-const char *pm4 =  "H:\\Fraps\\Movies\\MISC\\pm4 - 2.avi";
-
-// TEST VIDEO FILES
-global const char *anime404       = "../res/video/Anime404.mp4";
-global const char *a404test       = "../res/video/a404test.mp4";
-global const char *dance          = "../res/video/dance.mp4";
-global const char *nggyu          = "../res/video/nggyu.mp4";
-global const char *nggyu2         = "../res/video/nggyu2.mp4";
-global const char *vapor          = "../res/video/vapor.mp4";
-global const char *watamote       = "../res/video/watamote.mp4";
-// TEST AUDIO FILES
-global const char *nevercomedown  = "../res/audio/nevercomedown.mp3";
-global const char *ruskie         = "../res/audio/ruskie.webm";
-global const char *someonenew     = "../res/audio/someonenew.mp3";
-global const char *switchfriends  = "../res/audio/switchfriends.wav";
 
 global bool Global_running = true;
 global bool Global_paused = true;
@@ -116,7 +83,21 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 		if(event.type == SDL_QUIT) Global_running = false;
 		if(event.type == SDL_MOUSEMOTION) SDL_GetMouseState(&Global_mousex, &Global_mousey);
 		if(event.type == SDL_MOUSEBUTTONDOWN) Global_mousedown = true;
-		if(event.type == SDL_MOUSEBUTTONUP) Global_mousedown = false;
+		if(event.type == SDL_MOUSEBUTTONUP)
+		{
+			Global_mousedown = false;
+			SDL_Point p = { Global_mousex, Global_mousey};
+			if(SDL_PointInRect(&p, &Global_videoClip.tlRect))
+			{
+				float percent = (float)(Global_mousex - clip->tlRect.x) / clip->tlRect.w;
+				int index = (float)clip->endFrame * percent;
+				if(seekToAnyFrame(&Global_videoClip, index, Global_playIndex))
+				{
+					Global_playIndex = index;
+					setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+				}
+			}
+		}
 		if(event.type == SDL_KEYDOWN)
 		{
 			SDL_Keycode key = event.key.keysym.sym;
@@ -143,12 +124,7 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 						{
 							++Global_playIndex;
 							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-							printf("Play index: %d\n", Global_playIndex);
 						} 
-					}
-					else
-					{
-						printf("\nEnd of video\n\n");
 					}
 				} break;
 				case SDLK_LEFT:
@@ -163,12 +139,7 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 						{
 							--Global_playIndex;
 							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-							printf("Play index: %d\n", Global_playIndex);
 						}
-					}
-					else
-					{
-						printf("\nBeginning of video\n\n");
 					}
 				} break;
 				case SDLK_r:
@@ -183,7 +154,6 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 						{
 							Global_playIndex += 10;
 							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-							printf("Play index: %d\n", Global_playIndex);
 						}
 					}
 					else
@@ -194,7 +164,6 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 						{
 							Global_playIndex = Global_videoClip.endFrame;
 							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-							printf("Play index: %d\n", Global_playIndex);
 						}
 					}
 				} break;
@@ -210,7 +179,6 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 						{
 							Global_playIndex -= 10;
 							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-							printf("Play index: %d\n", Global_playIndex);
 						}
 					}
 					else
@@ -220,7 +188,6 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 						{
 							Global_playIndex = 0;
 							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-							printf("Play index: %d\n", Global_playIndex);
 						}
 					}
 				} break;
@@ -247,6 +214,8 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 						printf("Play index: %d\n", Global_playIndex);
 					}
 				} break;
+				// DEBUG
+				#if 0
 				case SDLK_0:
 				{
 					newClip(switchfriends);
@@ -315,6 +284,8 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 				{
 					newClip(pm4); // WARNING!!! LARGE FILE ONLY ON QUASAR
 				} break;
+				#endif
+				// DEBUG
 				case SDLK_b:
 				{
 					if(!Global_drawClipBoundRect) Global_drawClipBoundRect =  true;
@@ -366,7 +337,11 @@ int main(int argc, char **argv)
 
 	const char *fname;
 	if(argv[1]) fname = argv[1];
-	else fname = nggyu2; // // TEST XXX DEBUG
+	else 
+	{
+		printf("Please include a filename.\n");
+		return -1;
+	}
 
 	// Global_AudioDeviceID = initAudioDevice(Global_AudioSpec); WARNING XXX FIXME Breaks SDL_Quit
 
@@ -395,12 +370,10 @@ int main(int argc, char **argv)
 	TTF_Font *fontDroidSansMono24 = TTF_OpenFont("../res/fonts/DroidSansMono.ttf", 24);
 	TTF_Font *fontDroidSansMono32 = TTF_OpenFont("../res/fonts/DroidSansMono.ttf", 32);
 
-	printf("Inconsolata 24 : %s\n", TTF_FontFaceIsFixedWidth(fontDroidSansMono24) > 0 ? "TRUE" : "FALSE");
-	printf("Inconsolata 32 : %s\n", TTF_FontFaceIsFixedWidth(fontDroidSansMono32) > 0 ? "TRUE" : "FALSE");
-
 	SDL_Surface *playIndexSurface;
 	SDL_Surface *filenameSurface;
 	SDL_Surface *ticksElapsedSurface;
+	SDL_Surface *mousePosSurface;
 
 	float ticksElapsed = 0.0f;
 	int startTicks = SDL_GetTicks();
@@ -447,6 +420,26 @@ int main(int argc, char **argv)
 		startTicks = SDL_GetTicks();
 		#endif
 
+		
+
+		int filenameTextHeight;
+		TTF_SizeText(fontDroidSansMono24, Global_videoClip.filename, NULL, &filenameTextHeight);
+		int fnameTextX = Global_views.background.x;
+		int fnameTextY = Global_views.background.y - filenameTextHeight - 8;
+		DrawText(Global_renderer, fontDroidSansMono24, fnameTextX, fnameTextY, 
+		         Global_videoClip.filename, SDLC_white);
+
+		int playHeadW;
+		char playheadTextBuffer[32];
+		sprintf(playheadTextBuffer, "%d", Global_playIndex);
+		TTF_SizeText(fontDroidSansMono24, playheadTextBuffer, &playHeadW, NULL);
+		int playHeadX = Global_views.scrubber.x - (playHeadW / 2);
+		int playHeadY = Global_views.scrubber.y + Global_views.scrubber.h;
+		DrawText(Global_renderer, fontDroidSansMono24, playHeadX, playHeadY,
+		         playheadTextBuffer, SDLC_white);
+
+		// < DEBUG
+		#if 0
 		char ticksElapsedBuffer[32];
 		if(ticksElapsed < 10.0f) sprintf(ticksElapsedBuffer, "Ticks:  %.4f", ticksElapsed);
 		else sprintf(ticksElapsedBuffer, "Ticks: %.4f", ticksElapsed);
@@ -468,41 +461,29 @@ int main(int argc, char **argv)
 			SDL_DestroyTexture(ticksElapsedTexture);
 			SDL_FreeSurface(ticksElapsedSurface);
 		}
+		#endif
+		// > DEBUG
 
-
-		if(filenameSurface = TTF_RenderText_Blended(fontDroidSansMono32,
-		                                            Global_videoClip.vfile->formatCtx->filename, 
-		                                            SDLC_white));
+		// < DEBUG
+		#if 0
+		char mousePosBuffer[32];
+		sprintf(mousePosBuffer, "Mouse: (%d,%d)", Global_mousex, Global_mousey);
+		if(mousePosSurface = TTF_RenderText_Blended(fontDroidSansMono24, mousePosBuffer, SDLC_white))
 		{
-			SDL_Rect filenameRect;
-			filenameRect.w = filenameSurface->w;
-			filenameRect.h = filenameSurface->h;
-			filenameRect.x = Global_views.background.x;
-			filenameRect.y = Global_views.background.y - filenameRect.h - 2;
+			SDL_Rect mousePosRect;
+			mousePosRect.w = mousePosSurface->w;
+			mousePosRect.h = mousePosSurface->h;
+			mousePosRect.x = 8;
+			mousePosRect.y = 2;
 
-			SDL_Texture *filenameTexture = SDL_CreateTextureFromSurface(Global_renderer, filenameSurface);
-			SDL_RenderCopy(Global_renderer, filenameTexture, NULL, &filenameRect);
-			SDL_DestroyTexture(filenameTexture);
-			SDL_FreeSurface(filenameSurface);
+			SDL_Texture *mousePosTexture = SDL_CreateTextureFromSurface(Global_renderer, mousePosSurface);
+
+			SDL_RenderCopy(Global_renderer, mousePosTexture, NULL, &mousePosRect);
+			SDL_DestroyTexture(mousePosTexture);
+			SDL_FreeSurface(mousePosSurface);
 		}
-
-		char playheadTextBuffer[32];
-		sprintf(playheadTextBuffer, "%d", Global_playIndex);
-		if(playIndexSurface = TTF_RenderText_Blended(fontDroidSansMono24, 
-		                                             playheadTextBuffer, SDLC_white))
-		{
-			SDL_Rect playIndexRect;
-			playIndexRect.w = playIndexSurface->w;
-			playIndexRect.h = playIndexSurface->h;
-			playIndexRect.x = Global_views.scrubber.x - (playIndexRect.w / 2);
-			playIndexRect.y = Global_views.scrubber.y + Global_views.scrubber.h;
-
-			SDL_Texture *playIndexTexture = SDL_CreateTextureFromSurface(Global_renderer, 
-			                                                             playIndexSurface);
-			SDL_RenderCopy(Global_renderer, playIndexTexture, NULL, &playIndexRect);
-			SDL_DestroyTexture(playIndexTexture);
-			SDL_FreeSurface(playIndexSurface);
-		}
+		#endif
+		// > DEBUG
 
 
 		SDL_RenderCopy(Global_renderer, Global_videoClip.texture, NULL, 
