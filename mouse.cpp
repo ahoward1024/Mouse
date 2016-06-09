@@ -51,14 +51,27 @@ global int  Global_clipNumbers = 0;
 global SDL_Window   *Global_window;
 global SDL_Renderer *Global_renderer;
 
-global int  Global_mousex = 0, Global_mousey = 0;
-global bool Global_mousedown = false;
 global bool Global_drawClipBoundRect = true;
 
 global SDL_AudioDeviceID Global_AudioDeviceID = {};
 global SDL_AudioSpec Global_AudioSpec = {};
 
-static void newClip(const char *name)
+struct Mouse
+{
+	int32 x;
+	int32 y;
+	SDL_Point click;
+	bool  down;
+};
+
+inline Mouse createMouse()
+{
+	Mouse mouse = {0};
+	mouse.click = {-1, -1};
+	return mouse;
+}
+
+internal void newClip(const char *name)
 {
 	Global_playIndex = 0;
 	freeVideoClip(&Global_videoClip);
@@ -74,22 +87,43 @@ static void newClip(const char *name)
 // clips. This is not really a problem right now as the code to do this is really only for testing.
 // Remember, however, any time a new clip is loaded the rectangles for the composite view and
 // current views must be updated so it can resize the clip's aspect ratio correctly.
-internal void HandleEvents(SDL_Event event, VideoClip *clip)
+internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip)
 {
 	SDL_PumpEvents();
-	SDL_GetMouseState(&Global_mousex, &Global_mousey);
+	SDL_GetMouseState(&mouse->x, &mouse->y);
 	if(SDL_PollEvent(&event))
 	{
 		if(event.type == SDL_QUIT) Global_running = false;
-		if(event.type == SDL_MOUSEMOTION) SDL_GetMouseState(&Global_mousex, &Global_mousey);
-		if(event.type == SDL_MOUSEBUTTONDOWN) Global_mousedown = true;
+		if(event.type == SDL_MOUSEMOTION)
+		{
+			SDL_GetMouseState(&mouse->x, &mouse->y);
+
+			if(mouse->down)
+			{
+				if(SDL_PointInRect(&mouse->click, &Global_videoClip.tlRect))
+				{
+					float percent = (float)(mouse->x - clip->tlRect.x) / clip->tlRect.w;
+					int index = (float)clip->endFrame * percent;
+					if(seekToAnyFrame(&Global_videoClip, index, Global_playIndex))
+					{
+						Global_playIndex = index;
+						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+					}
+				}
+			}
+		}
+		if(event.type == SDL_MOUSEBUTTONDOWN) 
+		{
+			mouse->down = true;
+			mouse->click.x = mouse->x;
+			mouse->click.y = mouse->y;
+		}
 		if(event.type == SDL_MOUSEBUTTONUP)
 		{
-			Global_mousedown = false;
-			SDL_Point p = { Global_mousex, Global_mousey};
-			if(SDL_PointInRect(&p, &Global_videoClip.tlRect))
+			mouse->down = false;
+			if(SDL_PointInRect(&mouse->click, &Global_videoClip.tlRect))
 			{
-				float percent = (float)(Global_mousex - clip->tlRect.x) / clip->tlRect.w;
+				float percent = (float)(mouse->x - clip->tlRect.x) / clip->tlRect.w;
 				int index = (float)clip->endFrame * percent;
 				if(seekToAnyFrame(&Global_videoClip, index, Global_playIndex))
 				{
@@ -97,6 +131,8 @@ internal void HandleEvents(SDL_Event event, VideoClip *clip)
 					setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
 				}
 			}
+			mouse->click.x = -1;
+			mouse->click.y = -1;
 		}
 		if(event.type == SDL_KEYDOWN)
 		{
@@ -375,11 +411,13 @@ int main(int argc, char **argv)
 	SDL_Surface *ticksElapsedSurface;
 	SDL_Surface *mousePosSurface;
 
+	Mouse mouse = createMouse();
+
 	float ticksElapsed = 0.0f;
 	int startTicks = SDL_GetTicks();
 	while(Global_running)
 	{
-		HandleEvents(event, &Global_videoClip);
+		HandleEvents(&mouse, event, &Global_videoClip);
 
 		SDL_GetWindowSize(Global_window, &windowWidth, &windowHeight);
 

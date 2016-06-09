@@ -116,9 +116,9 @@ void layoutWindowElements(SDL_Window *window, ViewRects *views, VideoClip *clip,
 	// CLIP TL RECT
 	{
 		clip->tlRect.x = views->background.x;
-		clip->tlRect.y = views->background.y + views->background.h + (clip->tlRect.h * 2);
+		clip->tlRect.y = views->background.y + views->background.h + 20;
 		clip->tlRect.w = views->background.w;
-		clip->tlRect.h = 20; // TODO(alex): This is hardcoded for now, change this dynamically.
+		clip->tlRect.h = 40; // TODO(alex): This is hardcoded for now, change this dynamically.
 	}
 
 	// SCRUBBER
