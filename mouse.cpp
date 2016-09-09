@@ -103,10 +103,12 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip)
 				if(SDL_PointInRect(&mouse->click, &Global_videoClip.tlRect))
 				{
 					float percent = (float)(mouse->x - clip->tlRect.x) / clip->tlRect.w;
-					int index = (float)clip->endFrame * percent;
-					if(seekToAnyFrame(&Global_videoClip, index, Global_playIndex))
+					int wantedFrame = (float)clip->endFrame * percent;
+					if(wantedFrame < 0) wantedFrame = 0;
+					if(wantedFrame > clip->endFrame) wantedFrame = clip->endFrame;
+					if(seekToAnyFrame(&Global_videoClip, wantedFrame, Global_playIndex))
 					{
-						Global_playIndex = index;
+						Global_playIndex = wantedFrame;
 						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
 					}
 				}
@@ -124,10 +126,12 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip)
 			if(SDL_PointInRect(&mouse->click, &Global_videoClip.tlRect))
 			{
 				float percent = (float)(mouse->x - clip->tlRect.x) / clip->tlRect.w;
-				int index = (float)clip->endFrame * percent;
-				if(seekToAnyFrame(&Global_videoClip, index, Global_playIndex))
+				int wantedFrame = (float)clip->endFrame * percent;
+				if(wantedFrame < 0) wantedFrame = 0;
+				if(wantedFrame > clip->endFrame) wantedFrame = clip->endFrame;
+				if(seekToAnyFrame(&Global_videoClip, wantedFrame, Global_playIndex))
 				{
-					Global_playIndex = index;
+					Global_playIndex = wantedFrame;
 					setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
 				}
 			}
@@ -250,78 +254,6 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip)
 						printf("Play index: %d\n", Global_playIndex);
 					}
 				} break;
-				// DEBUG
-				#if 0
-				case SDLK_0:
-				{
-					newClip(switchfriends);
-				} break;
-				case SDLK_1:
-				{
-					newClip(anime404);
-				} break;
-				case SDLK_2:
-				{
-					newClip(a404test);
-				} break;
-				case SDLK_3:
-				{
-					newClip(nggyu);
-				} break;
-				case SDLK_4:
-				{
-					newClip(dance);
-				} break;
-				case SDLK_5:
-				{
-					newClip(vapor);
-				} break;
-				case SDLK_6:
-				{
-					newClip(watamote);
-				} break;
-				case SDLK_7: // TODO(alex): Audio
-				{
-					// newClip(nevercomedown);
-				} break;
-				case SDLK_8:
-				{
-					// newClip(ruskie);
-				} break;
-				case SDLK_9:
-				{
-					// newClip(someonenew);
-				} break;
-				case SDLK_F1:
-				{
-					newClip(testraw);
-				} break;
-				case SDLK_F2:
-				{
-					newClip(testmp4);
-				} break;
-				case SDLK_F3:
-				{
-					newClip(testavi);
-				} break;
-				case SDLK_F4:
-				{
-					newClip(black240raw);
-				} break;
-				case SDLK_F5:
-				{
-					newClip(black240avi);
-				} break;
-				case SDLK_F6:
-				{
-					newClip(black240mp4);
-				} break;
-				case SDLK_F7:
-				{
-					newClip(pm4); // WARNING!!! LARGE FILE ONLY ON QUASAR
-				} break;
-				#endif
-				// DEBUG
 				case SDLK_b:
 				{
 					if(!Global_drawClipBoundRect) Global_drawClipBoundRect =  true;

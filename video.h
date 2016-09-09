@@ -222,6 +222,9 @@ inline int decodeSingleFrameCapDelay(VideoClip *clip)
 	return result;
 }
 
+// WARNING: When you call this function MAKE ABSOLUTELY SURE THE WANTED FRAME IS SANITIZED
+// This function will make no attempt to make sure the value is able to be seeked to in the
+// interest of speed. This is an _incredibly_ slow function in it's own right.
 bool seekToAnyFrame(VideoClip *clip, int wantedFrame, int currentFrame)
 {
 	int flags = 0;
@@ -229,6 +232,25 @@ bool seekToAnyFrame(VideoClip *clip, int wantedFrame, int currentFrame)
 	int pkeyf = clip->vfile->frames[wantedFrame].parentKeyframe;
 
 	avcodec_flush_buffers(clip->vfile->codecCtx);
+
+	// If the wanted frame is the first frame in the video, then it is a keyframe and we just need
+	// to seek to it
+	if(wantedFrame == 0)
+	{
+		int64 pkeyfdts = clip->vfile->frames[0].dts;
+		if(av_seek_frame(clip->vfile->formatCtx, clip->vfile->streamIndex, pkeyfdts, flags) >= 0)
+		{
+			// printf("Seek to frame 0 successfull.\n");
+			decodeSingleFrameCapDelay(clip);
+			updateVideoClipTexture(clip);
+			return true;
+		}
+		else
+		{
+			printf("Seeking to frame 0 failed!\n");
+			return false;
+		}
+	}
 
 	// If pkeyf == -1 then this frame is itself a keyframe, so it's parent keyframe does not
 	// need to be calculated, it can be seeked to and decoded right away.
@@ -253,6 +275,7 @@ bool seekToAnyFrame(VideoClip *clip, int wantedFrame, int currentFrame)
 		// and decode from to the parent keyframe and up to the frame we want
 		int64 pkeyfdts = clip->vfile->frames[pkeyf].dts;
 		flags = AVSEEK_FLAG_BACKWARD; // We MUST set this to backwards. The pkeyf is always behind!
+		// Try to seek to the parent keyframe
 		if(av_seek_frame(clip->vfile->formatCtx, clip->vfile->streamIndex, pkeyfdts, flags) >= 0)
 		{
 			int wantedPts = clip->vfile->ptsListSorted[wantedFrame];
@@ -266,6 +289,7 @@ bool seekToAnyFrame(VideoClip *clip, int wantedFrame, int currentFrame)
 				++i;
 				currentPts = clip->vfile->frames[pkeyf + i].pts;
 			}
+			// 
 			if(i >= count)
 			{
 				printf("Something went horribly wrong: iterator is >= count.\n\n");
