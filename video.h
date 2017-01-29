@@ -55,7 +55,7 @@ struct VideoClip
 	int           beginFrame;
 	int           endFrame;
 	int           number;
-	const char   *filename;
+	char         *filename;
 };
 
 int ptsCompare(const void * a, const void * b)
@@ -63,6 +63,7 @@ int ptsCompare(const void * a, const void * b)
 	return (*(int *)a - *(int *)b);
 }
 
+// TODO Fix memory leak error when dragging and dropping clips
 // This will free the clip for reinitalization, we do not free the texture
 // as SDL still needs it for video resizing.
 void freeVideoFile(VideoFile *vfile)
@@ -70,12 +71,14 @@ void freeVideoFile(VideoFile *vfile)
 	printf("Freeing video file: %s\n\n", vfile->formatCtx->filename); // DEBUG
 	avcodec_close(vfile->codecCtx);
 	avformat_close_input(&vfile->formatCtx);
+	av_free(vfile->codec);
 }
 
 void freeVideoClip(VideoClip *clip)
 {
-	printf("Freeing video clip %d : %s\n", clip->number, clip->vfile->formatCtx->filename);
+	printf("Freeing video clip %d : %s\n", clip->number, clip->vfile->formatCtx->filename); // DEBUG
 	av_free(clip->swsCtx);
+	av_frame_free(&clip->frame);
 	SDL_free(clip->texture);
 	free(clip->yPlane);
 	free(clip->uPlane);
@@ -470,7 +473,7 @@ void loadVideoFile(VideoFile *vfile, SDL_Renderer *renderer, const char *filenam
 	vfile->formatCtx = NULL;
 	if(avformat_open_input(&vfile->formatCtx, filename, NULL, NULL) != 0)
 	{
-		printf("Could not open file: %s.\n", filename);
+		printf("Could not open file: %s\n", filename);
 		exit(-1);
 	}
 

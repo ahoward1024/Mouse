@@ -1,3 +1,5 @@
+// TODO Fix memory leak and crashing errors when dragging and dropping clips
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -5,8 +7,7 @@
 #include <sys/stat.h>
 #include <assert.h>
 
-// TODO: Get rid of all of this DLL nonsense and statically compile all dependencies
-// so they are built directly into the .exe with /MT.
+#include "resource.h"
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_gfxPrimitives.h>
@@ -87,7 +88,7 @@ internal void newClip(const char *name)
 // clips. This is not really a problem right now as the code to do this is really only for testing.
 // Remember, however, any time a new clip is loaded the rectangles for the composite view and
 // current views must be updated so it can resize the clip's aspect ratio correctly.
-internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip)
+internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip, char **fname)
 {
 	SDL_PumpEvents();
 	SDL_GetMouseState(&mouse->x, &mouse->y);
@@ -275,6 +276,47 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip)
 				} break;
 			}
 		}
+		if(event.type == SDL_DROPFILE)
+		{
+			// TODO Fix drag and drop up so there are no more crashes.
+			*fname = event.drop.file;
+			Global_playIndex = 0;
+
+			freeVideoClip(&Global_videoClip);
+			freeVideoFile(&Global_videoFile);
+
+			loadVideoFile(&Global_videoFile, Global_renderer, *fname);
+			printVideoFileInfo(Global_videoFile);
+			createVideoClip(&Global_videoClip, &Global_videoFile, Global_renderer, Global_clipNumbers++);
+			printVideoClipInfo(Global_videoClip);
+			// MUST Layout Window Elements so the video and scrubber are in the correct place
+			layoutWindowElements(Global_window, &Global_views, &Global_videoClip, Global_playIndex);
+		}
+	}
+}
+
+void WaitForDroppedFileEvent(SDL_Event event, char **fname, bool *gotFile)
+{
+	SDL_PumpEvents();
+	if(SDL_PollEvent(&event))
+	{
+		switch(event.type)
+		{
+			case SDL_DROPFILE:
+			{
+				*fname = event.drop.file;
+				*gotFile = true;
+			} break;
+			case SDL_KEYDOWN:
+			{
+				SDL_Keycode key = event.key.keysym.sym;
+				if(key == SDLK_ESCAPE) Global_running = false;
+			} break;
+			case SDL_QUIT:
+			{
+				Global_running = false;
+			} break;
+		}
 	}
 }
 
@@ -303,29 +345,38 @@ int main(int argc, char **argv)
 	Global_screenRect.w = Global_screenWidth;
 	Global_screenRect.h = Global_screenHeight;
 
-	const char *fname;
+	char *fname = "";
+	// If we have an argument then we try to use it as a filename, otherwise we go to the loop.
 	if(argv[1]) fname = argv[1];
-	else 
+	else
 	{
-		printf("Please include a filename.\n");
-		return -1;
+		bool gotFile = false;
+		// We didn't get a file from argv[1] so open the window and render it and wait for a file
+		// to be dropped on the window.
+		while(!gotFile && Global_running)
+		{
+			WaitForDroppedFileEvent(event, &fname, &gotFile);
+			SDL_SetRenderDrawColor(Global_renderer, 
+			                       tcBackground.r, 
+			                       tcBackground.g, 
+			                       tcBackground.b, 
+			                       tcBackground.a);
+			SDL_RenderClear(Global_renderer);
+			SDL_RenderPresent(Global_renderer);
+		}
+
+		// Never got a filename (user gave an exit code without dropping a file).
+		// Just skip everything and exit.
+		if(!gotFile) return -1;
 	}
 
 	// Global_AudioDeviceID = initAudioDevice(Global_AudioSpec); WARNING XXX FIXME Breaks SDL_Quit
-
 	loadVideoFile(&Global_videoFile, Global_renderer, fname); 
 	printVideoFileInfo(Global_videoFile);
 	createVideoClip(&Global_videoClip, &Global_videoFile, Global_renderer, Global_clipNumbers++);
 	printVideoClipInfo(Global_videoClip);
-
-	// Refresh the window layout if SDL is set to maximize. We do this check so we don't have to do
-	// the expense of recalculating all of the window stuff if SDL is not set to maximize.
-	// Also, SDL will open a window at the default specified resolution and _THEN_ maximize the window
-	// So we have to do this if the maximize flag is enabled.
-	if(!(SDL_GetWindowFlags(Global_window) & SDL_WINDOW_MAXIMIZED))
-		layoutWindowElements(Global_window, &Global_views, &Global_videoClip, Global_playIndex);
-
-	// SDL_SetRenderDrawBlendMode(Global_renderer, SDL_BLENDMODE_BLEND);
+	// MUST Layout Window Elements so the video and scrubber are in the correct place
+	layoutWindowElements(Global_window, &Global_views, &Global_videoClip, Global_playIndex);
 
 	TTF_Init();
 
@@ -349,7 +400,7 @@ int main(int argc, char **argv)
 	int startTicks = SDL_GetTicks();
 	while(Global_running)
 	{
-		HandleEvents(&mouse, event, &Global_videoClip);
+		HandleEvents(&mouse, event, &Global_videoClip, &fname);
 
 		SDL_GetWindowSize(Global_window, &windowWidth, &windowHeight);
 
@@ -389,8 +440,6 @@ int main(int argc, char **argv)
 		}
 		startTicks = SDL_GetTicks();
 		#endif
-
-		
 
 		int filenameTextHeight;
 		TTF_SizeText(fontDroidSansMono24, Global_videoClip.filename, NULL, &filenameTextHeight);
