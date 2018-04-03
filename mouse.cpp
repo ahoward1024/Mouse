@@ -28,34 +28,38 @@ extern "C"
 #include "datatypes.h"
 #include "colors.h"
 
-#include "ui.h"
-#include "video.h"
-#include "audio.h"
-
 #include "testvideos.h"
+
+#define KEYUP_CTRL
 
 global int Global_screenWidth = 1920;
 global int Global_screenHeight = 1080;
 global SDL_Rect Global_screenRect = {};
 
-global ViewRects Global_views = {};
-
-global VideoFile Global_videoFile = {};
-global VideoClip Global_videoClip = {};
-
 global bool Global_running = true;
 global bool Global_paused = true;
 global bool Global_flush = false;
 global int  Global_playIndex = 0;
+global int  Global_seekIndex = 0;
 global int  Global_clipNumbers = 0;
 
 global SDL_Window   *Global_window;
 global SDL_Renderer *Global_renderer;
 
 global bool Global_drawClipBoundRect = true;
+global SDL_Point Global_origVideoPoint;
 
 global SDL_AudioDeviceID Global_AudioDeviceID = {};
 global SDL_AudioSpec Global_AudioSpec = {};
+
+#include "ui.h"
+#include "video.h"
+#include "audio.h"
+
+global ViewRects Global_views = {};
+
+global VideoFile Global_videoFile = {};
+global VideoClip Global_videoClip = {};
 
 struct Mouse
 {
@@ -84,6 +88,20 @@ internal void newClip(const char *name)
 	layoutWindowElements(Global_window, &Global_views, &Global_videoClip, Global_playIndex);
 }
 
+void seek_initial(int amount)
+{
+	Global_paused = true;
+	Global_seekIndex = Global_playIndex;
+	int index = Global_playIndex + amount;
+	if(index > Global_videoClip.endFrame) index = Global_videoClip.endFrame;
+	else if(index < 0) index = 0;
+	else if(index == Global_videoClip.endFrame) return;
+	else if(index == 0) return;
+
+	setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
+	Global_playIndex = index;
+}
+
 // NOTE: As of this point, refreshing all window elements is actually fast enough when updating the
 // clips. This is not really a problem right now as the code to do this is really only for testing.
 // Remember, however, any time a new clip is loaded the rectangles for the composite view and
@@ -107,7 +125,7 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip, char 
 					int wantedFrame = (float)clip->endFrame * percent;
 					if(wantedFrame < 0) wantedFrame = 0;
 					if(wantedFrame > clip->endFrame) wantedFrame = clip->endFrame;
-					if(seekToAnyFrame(&Global_videoClip, wantedFrame, Global_playIndex))
+					if(seekToAnyFrame(&Global_videoClip, wantedFrame))
 					{
 						Global_playIndex = wantedFrame;
 						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
@@ -120,6 +138,8 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip, char 
 			mouse->down = true;
 			mouse->click.x = mouse->x;
 			mouse->click.y = mouse->y;
+			Global_origVideoPoint.x = Global_videoClip.videoRect.x;
+			Global_origVideoPoint.y = Global_videoClip.videoRect.y;
 		}
 		if(event.type == SDL_MOUSEBUTTONUP)
 		{
@@ -130,7 +150,7 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip, char 
 				int wantedFrame = (float)clip->endFrame * percent;
 				if(wantedFrame < 0) wantedFrame = 0;
 				if(wantedFrame > clip->endFrame) wantedFrame = clip->endFrame;
-				if(seekToAnyFrame(&Global_videoClip, wantedFrame, Global_playIndex))
+				if(seekToAnyFrame(&Global_videoClip, wantedFrame))
 				{
 					Global_playIndex = wantedFrame;
 					setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
@@ -156,104 +176,40 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip, char 
 				case SDLK_RIGHT:
 				case SDLK_f:
 				{
-					if(!Global_paused) Global_paused = true;
-					int index = Global_playIndex + 1;
-					if(index <= Global_videoClip.endFrame)
-					{
-						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
-						if(result)
-						{
-							++Global_playIndex;
-							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-						} 
-					}
+					seek_initial(1);
 				} break;
 				case SDLK_LEFT:
 				case SDLK_d:
 				{
-					if(!Global_paused) Global_paused = true;
-					int index = Global_playIndex - 1;
-					if(index >= 0)
-					{
-						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
-						if(result)
-						{
-							--Global_playIndex;
-							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-						}
-					}
+					seek_initial(-1);
 				} break;
 				case SDLK_r:
 				case SDLK_UP:
 				{
-					if(!Global_paused) Global_paused = true;
-					int index = Global_playIndex + 10;
-					if(index < Global_videoClip.endFrame - 10)
-					{
-						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
-						if(result)
-						{
-							Global_playIndex += 10;
-							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-						}
-					}
-					else
-					{
-						bool result = seekToAnyFrame(&Global_videoClip, Global_videoClip.endFrame, 
-						                             Global_playIndex);
-						if(result)
-						{
-							Global_playIndex = Global_videoClip.endFrame;
-							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-						}
-					}
+					seek_initial(10);
 				} break;
 				case SDLK_e:
 				case SDLK_DOWN:
 				{
-					if(!Global_paused) Global_paused = true;
-					int index = Global_playIndex - 10;
-					if(Global_playIndex > 10)
-					{
-						bool result = seekToAnyFrame(&Global_videoClip, index, Global_playIndex);
-						if(result)
-						{
-							Global_playIndex -= 10;
-							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-						}
-					}
-					else
-					{
-						bool result = seekToAnyFrame(&Global_videoClip, 0, Global_playIndex);
-						if(result)
-						{
-							Global_playIndex = 0;
-							setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-						}
-					}
+					seek_initial(-10);
 				} break;
 				case SDLK_HOME:
 				{
-					if(!Global_paused) Global_paused = true;
-					bool result = seekToAnyFrame(&Global_videoClip, 0, Global_playIndex);
-					if(result)
-					{
-						Global_playIndex = 0;
-						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-						printf("Play index: %d\n", Global_playIndex);
-					}
+					seek_initial(-Global_playIndex);
 				} break;
 				case SDLK_END:
 				{
-					if(!Global_paused) Global_paused = true;
-					bool result = seekToAnyFrame(&Global_videoClip, 
-					                             Global_videoClip.endFrame, Global_playIndex);
-					if(result)
-					{
-						Global_playIndex = Global_videoClip.endFrame;
-						setScrubberXPosition(Global_videoClip, &Global_views, Global_playIndex);
-						printf("Play index: %d\n", Global_playIndex);
-					}
+					seek_initial(Global_videoClip.endFrame - Global_playIndex);
+				} break;
+				case SDLK_v:
+				{
+					Global_videoClip.videoRect.w = Global_videoClip.vfile->width;
+					Global_videoClip.videoRect.h = Global_videoClip.vfile->height;
+
+					Global_videoClip.videoRect.x = Global_views.background.x + 
+						((Global_views.background.w - Global_videoClip.videoRect.w) / 2);
+					Global_videoClip.videoRect.y = Global_views.background.y + 
+						((Global_views.background.h - Global_videoClip.videoRect.h) / 2);
 				} break;
 				case SDLK_b:
 				{
@@ -261,6 +217,33 @@ internal void HandleEvents(Mouse *mouse, SDL_Event event, VideoClip *clip, char 
 					else Global_drawClipBoundRect = false;
 				} break;
 			}
+		}
+		if(event.type == SDL_KEYUP)
+		{
+			SDL_Keycode key = event.key.keysym.sym;
+			switch(key)
+			{
+				case SDLK_RIGHT:
+				case SDLK_f:
+				case SDLK_LEFT:
+				case SDLK_d:
+				case SDLK_r:
+				case SDLK_UP:
+				case SDLK_e:
+				case SDLK_DOWN:
+				case SDLK_HOME:
+				case SDLK_END:
+				{
+					seekToAnyFrame(&Global_videoClip, Global_playIndex);
+				} break;
+			}
+		}
+		if(event.type == SDL_MOUSEWHEEL)
+		{
+			int amount = 100;
+			if(event.wheel.y < 0) amount = -amount;
+			Global_videoClip.videoRect.w += amount;
+			Global_videoClip.videoRect.h += amount;
 		}
 		if(event.type == SDL_WINDOWEVENT)
 		{
@@ -504,9 +487,10 @@ int main(int argc, char **argv)
 		#endif
 		// > DEBUG
 
-
+		SDL_RenderSetClipRect(Global_renderer, &Global_views.background);
 		SDL_RenderCopy(Global_renderer, Global_videoClip.texture, NULL, 
 		               (SDL_Rect *)&Global_videoClip.videoRect);
+		SDL_RenderSetClipRect(Global_renderer, NULL);
 
 		setRenderColor(Global_renderer, tcView);
 		SDL_RenderFillRect(Global_renderer, &Global_videoClip.tlRect);
@@ -514,9 +498,27 @@ int main(int argc, char **argv)
 		setRenderColor(Global_renderer, tcRed);
 		SDL_RenderFillRect(Global_renderer, &Global_views.scrubber);
 
+		setRenderColor(Global_renderer, tcGreen);
+		SDL_Rect mouser = {mouse.x - 5, mouse.y - 5, 10, 10};
+		SDL_RenderFillRect(Global_renderer, &mouser);
+
+		setRenderColor(Global_renderer, tcBlue);
+		SDL_Rect clickr = {mouse.click.x - 5, mouse.click.y - 5, 10 , 10};
+		SDL_RenderFillRect(Global_renderer, &clickr);
+
 		if(Global_drawClipBoundRect)
 		{
 			// drawClipBoundRect(Global_renderer, Global_videoClip, tcRed, 5); // DEBUG
+		}
+
+		if(mouse.down)
+		{
+			SDL_Point p = {mouse.x, mouse.y};
+			if(SDL_PointInRect(&p, &Global_views.background))
+			{
+				Global_videoClip.videoRect.x = Global_origVideoPoint.x + (mouse.x - mouse.click.x);
+				Global_videoClip.videoRect.y = Global_origVideoPoint.y + (mouse.y - mouse.click.y);
+			}
 		}
 
 		SDL_RenderPresent(Global_renderer);

@@ -228,10 +228,10 @@ inline int decodeSingleFrameCapDelay(VideoClip *clip)
 // WARNING: When you call this function MAKE ABSOLUTELY SURE THE WANTED FRAME IS SANITIZED
 // This function will make no attempt to make sure the value is able to be seeked to in the
 // interest of speed. This is an _incredibly_ slow function in it's own right.
-bool seekToAnyFrame(VideoClip *clip, int wantedFrame, int currentFrame)
+bool seekToAnyFrame(VideoClip *clip, int wantedFrame)
 {
 	int flags = 0;
-	if(wantedFrame < currentFrame) flags = AVSEEK_FLAG_BACKWARD;
+	if(wantedFrame < Global_seekIndex) flags = AVSEEK_FLAG_BACKWARD;
 	int pkeyf = clip->vfile->frames[wantedFrame].parentKeyframe;
 
 	avcodec_flush_buffers(clip->vfile->codecCtx);
